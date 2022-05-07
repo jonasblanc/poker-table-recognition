@@ -9,6 +9,13 @@ TOP_LEFT_CARD_BOUNDARIES = [0,0.25,0.15,0.45]
 TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.70,0.9]
 CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
 
+def optimal_Gaussian_mixture_tresholding(grey_img,n_centroids):
+    """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
+    to optimally treshold by only considering the two Gaussian clusters with the most points"""
+    #Idea: use OTSU after having assigned removed 
+    #For cards: assign all pixels that are not background to the card label
+    pass
+
 def crop(img,fractional_boundaries):
     """All values in boundaries (x_min,x_max,y_min,y_max) are fraction of the corresponding length
     Axis starts at top corner of img with first axis pointing down and second axis pointing right"""
