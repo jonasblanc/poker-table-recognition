@@ -9,12 +9,74 @@ TOP_LEFT_CARD_BOUNDARIES = [0,0.25,0.15,0.45]
 TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.70,0.9]
 CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
 
-def optimal_Gaussian_mixture_tresholding(grey_img,n_centroids):
+def optimal_Gaussian_mixture_tresholding(grey_img,n_centroids, background_is_darker, set_other_centroids_to_background=False):
     """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
     to optimally treshold by only considering the two Gaussian clusters with the most points"""
+    #Idea: use Kmeans to classify all pixels or Gaussian mixture
+    # The top 2 clusters in number of points are our interesting clusters
+    # Set other clusters to background or not
     #Idea: use OTSU after having assigned removed 
     #For cards: assign all pixels that are not background to the card label
     pass
+
+def optimal_contour_extraction(img,number_shapes,background_idx,target_shape_idx):
+    """Extracts number_shapes from the image assuming that all shapes are similar
+    Works well for extracting the contour of multiple similar elements from the image (eg: cards) 
+    Assumes provided image is in RGB"""
+    #NOTE: use provided pixel indices to extract colour for correct manual thresholding => could be latter replaced 
+    # with K-means to only keep 2 colors and then use thresholding
+    #NOTE: in the case of wanted rectangular shapes, we could have tried to apporximate the contour with cv2.approxPolyDP and 
+    #verify that we obtain 4 points
+
+    def filter_contour(thresh,contour_candidates):
+        """If contour_candidate has enough threshold, adds it to candidates list"""
+        contours, hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+        if(len(contours)>=number_shapes):
+            contours = sorted(contours, key=cv2.contourArea,reverse=True)[:number_shapes]  
+            contour_candidates.append(contours)
+
+    def pick_best_contours(contour_candidates):
+        #CAVEAT: may fail if smaller other regular objects are detected =>could add a minimum contour area
+        #Assume only provided the number_shapes biggest
+        min_variance = np.inf
+        best_contour = []
+
+        #Iterate over different methods of contours extraction
+        for contour_candidate in contour_candidates:
+            contour_areas = []
+            for contour in contour_candidate:
+                contour_areas.append(cv2.contourArea(contour))
+            area_variance = np.var(contour_areas)
+            area_mean = np.mean(contour_areas)
+            area_standardised_variance = area_variance/(area_mean**2)
+            
+            if(area_standardised_variance<min_variance):
+                min_variance = area_standardised_variance
+                best_contour = contour_candidate
+
+        return best_contour
+    
+    img = cv2.GaussianBlur(img,(11,11),100) 
+    img_HSV = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+    contour_candidates = []
+    for i in range(3):
+        img_grey = img_HSV[:,:,i]
+        color_background = img_grey[background_idx[0],background_idx[1]]
+        color_card = img_grey[target_shape_idx[0],target_shape_idx[1]]
+        manual_threshold = np.mean([color_background,color_card])
+
+        flag, manual_thresh = cv2.threshold(img_grey, manual_threshold, 255, cv2.THRESH_BINARY)
+
+        filter_contour(manual_thresh,contour_candidates)
+        #Do contouring on image inverse
+        filter_contour(~manual_thresh,contour_candidates)
+
+    best_contour = pick_best_contours(contour_candidates)
+
+    return best_contour
+        
+    
+
 
 def crop(img,fractional_boundaries):
     """All values in boundaries (x_min,x_max,y_min,y_max) are fraction of the corresponding length
