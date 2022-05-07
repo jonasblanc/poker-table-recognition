@@ -1,13 +1,17 @@
 import cv2
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 
 BOTTOM_CARD_BOUNDARIES = [0.75,1,0.15,0.9]
 LEFT_CARD_BOUNDARIES  = [0.30,0.65,0,0.25]
 RIGHT_CARD_BOUNDARIES = [0.30,0.65,0.75,1]
 TOP_LEFT_CARD_BOUNDARIES = [0,0.25,0.15,0.45]
-TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.70,0.9]
+TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.50,0.9]
 CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
+
+
+########################################BOTTOM ROW###############################################
 
 def optimal_Gaussian_mixture_tresholding(grey_img,n_centroids, background_is_darker, set_other_centroids_to_background=False):
     """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
@@ -74,8 +78,122 @@ def optimal_contour_extraction(img,number_shapes,background_idx,target_shape_idx
     best_contour = pick_best_contours(contour_candidates)
 
     return best_contour
-        
+
+def reorder_corners(corners):
+    """ Reorder the corners so they have a deterministic order: top_left,top_right,bottom_right,bottom_left] 
+    corners: numpy array of (4,2)
+    """
+    #NOTE: in the corners opencv representation, the first axis goes left 
+    # and the second goes down (inverse of standardimamge representation)
+
+    new_corners = np.empty((4,2),np.float32)
+
+    mean_x = corners[:,0].mean()
+    mean_y = corners[:,1].mean()
+
+    for x,y in corners:
+        corner = np.array([x,y])
+        if(x<mean_x and y<mean_y):
+            new_corners[0][0] = x
+            new_corners[0][1] = y
+        elif(x>mean_x and y<mean_y):
+            new_corners[1][0] = x
+            new_corners[1][1] = y
+        elif(x>mean_x and y>mean_y):
+            new_corners[2][0] = x
+            new_corners[2][1] = y
+        else:
+            new_corners[3][0] = x
+            new_corners[3][1] = y
+
+    return new_corners
+
+def leftmost_coordinate(corners):
+    #NOTE: uses open cv corner representation (first axis points left)
+    return np.min(corners[:,0])
+
+def extract_bottom_cards(bottom_row,plot=False):
+    background_idx = [40,40]
+    card_idx = [550,200]
+    best_contours = optimal_contour_extraction(bottom_row,number_shapes=5,background_idx = background_idx,target_shape_idx = card_idx)
     
+    if(plot):
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 10),tight_layout=True)
+        axes[0].imshow(bottom_row)
+        axes[0].set_title(f'Original image')
+        background = np.zeros_like(bottom_row)
+        contour_img = cv2.drawContours(background.copy(), best_contours, -1,(0,255,0),20)
+        axes[1].imshow(contour_img)
+        axes[1].set_title(f'Optimal contours')
+        plt.show()
+
+    card_size = [300,400]
+    contour_corners = []
+    for card_contour in best_contours:
+        peri = cv2.arcLength(card_contour,True)
+        approx = cv2.approxPolyDP(card_contour,0.02*peri,True)
+        corners = np.array(approx[:,0,:],np.float32) #Just remove useless middle dimension
+       
+        corners = reorder_corners(corners)
+        contour_corners.append(corners)
+
+    #Sort contours from leftmost to right_most
+    contour_corners = sorted(contour_corners,key = lambda corners: leftmost_coordinate(corners))
+    extracted_cards = []
+
+    for corners in contour_corners:
+
+        h = np.array([[0,0],[card_size[0],0],[card_size[0],card_size[1]],[0,card_size[1]] ],np.float32)
+        
+        transform = cv2.getPerspectiveTransform(corners, h)
+        card = cv2.warpPerspective(bottom_row,transform,card_size)
+        extracted_cards.append(card)
+
+    if(plot and len(extracted_cards)>0):
+        fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
+        for i,card in enumerate(extracted_cards):
+            axes[i].imshow(card)
+            axes[i].set_title(f"Card number {i}")
+        plt.show()
+
+    return extracted_cards
+  
+#NOTE IMPLEMENTED ENTIRELLY, might be left for later
+def optimal_Gaussian_mixture_tresholding(img,n_centroids, background_is_darker, set_other_centroids_to_background=False):
+    """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
+    to optimally treshold by only considering the two Gaussian clusters with the most points"""
+
+    kmeans = KMeans(n_clusters=n_centroids, random_state=0).fit(img.ravel().reshape(-1,1))
+    print(kmeans.cluster_centers_)
+    cluster_sizes = Counter()
+    print(kmeans.labels_)
+    for label in range(n_centroids):
+        cluster_sizes[label] = (kmeans.labels_==label).sum()
+    
+    print(cluster_sizes)
+    top2_labels = [k for (k,v) in cluster_sizes.most_common(2)]
+    print(top2_labels)
+    top2_cluster_centers = kmeans.cluster_centers_[top2_labels]
+    background_label =  np.argmin(top2_cluster_centers) if(background_is_darker) else np.argmax(top2_cluster_centers)
+    background_label = top2_labels[background_label]
+    print(background_label)
+    foreground_label = (set(top2_labels) - {background_label}).pop()
+    print(foreground_label)
+    
+    replace_label = background_label if(set_other_centroids_to_background) else foreground_label
+    
+    labels_set = {i for i in range(n_centroids)}
+    other_labels = labels_set - set(top2_labels)
+    new_labels = kmeans.labels_.copy()
+    for label in other_labels:
+        new_labels[new_labels==label] = replace_label
+    
+    labeled_img= new_labels.reshape(img.shape).copy()
+    thresholded_img=(labeled_img!=background_label).astype(np.uint8)
+
+    return thresholded_img
+################################################################################################# 
 
 
 def crop(img,fractional_boundaries):
@@ -98,7 +216,7 @@ def partition_image(img):
     """Partition the image into cards/chips sections"""
     result = {}
 
-    result['bottom_cards'] = crop(img,BOTTOM_CARD_BOUNDARIES)
+    result['bottom_row'] = crop(img,BOTTOM_CARD_BOUNDARIES)
     result['left_cards'] = crop(img,LEFT_CARD_BOUNDARIES)
     result['right_cards'] =  crop(img,RIGHT_CARD_BOUNDARIES)
     result['top_left_cards'] = crop(img,TOP_LEFT_CARD_BOUNDARIES)
