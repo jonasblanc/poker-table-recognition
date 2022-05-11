@@ -2,6 +2,8 @@ import cv2
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+from plot_helper import plot_contour
+from sklearn.cluster import KMeans
 
 BOTTOM_CARD_BOUNDARIES = [0.75,1,0.15,0.9]
 LEFT_CARD_BOUNDARIES  = [0.30,0.65,0,0.25]
@@ -11,54 +13,114 @@ TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.50,0.9]
 CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
 
 
-########################################BOTTOM ROW###############################################
+########################################CONTOUR EXTRACTION###############################################
 
-def optimal_Gaussian_mixture_tresholding(grey_img,n_centroids, background_is_darker, set_other_centroids_to_background=False):
-    """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
-    to optimally treshold by only considering the two Gaussian clusters with the most points"""
-    #Idea: use Kmeans to classify all pixels or Gaussian mixture
-    # The top 2 clusters in number of points are our interesting clusters
-    # Set other clusters to background or not
-    #Idea: use OTSU after having assigned removed 
-    #For cards: assign all pixels that are not background to the card label
-    pass
+def extract_candidate_contours(img, shape_count,n_thresholds = 2, plot = False):
 
-def optimal_contour_extraction(img,number_shapes,background_idx,target_shape_idx):
-    """Extracts number_shapes from the image assuming that all shapes are similar
-    Works well for extracting the contour of multiple similar elements from the image (eg: cards) 
-    Assumes provided image is in RGB"""
-    #NOTE: use provided pixel indices to extract colour for correct manual thresholding => could be latter replaced 
-    # with K-means to only keep 2 colors and then use thresholding
-    #NOTE: in the case of wanted rectangular shapes, we could have tried to apporximate the contour with cv2.approxPolyDP and 
-    #verify that we obtain 4 points
+    number_plot_per_HSV = 2+3*n_thresholds  # (image_HSV, hist, thresholded image, contour, countour_inv)
+    if(plot):
+        fig, axes = plt.subplots(number_plot_per_HSV, 3, figsize=(20, 20),tight_layout=True)
 
-    def filter_contour(thresh,contour_candidates):
-        """If contour_candidate has enough threshold, adds it to candidates list"""
-        contours, hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+    img = cv2.GaussianBlur(img,(11,11),100) 
+    img_HSV = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+    contour_candidates = []
+
+    for i in range(3):
+        img_grey = img_HSV[:,:,i]
+
+        kmeans = KMeans(n_clusters=n_thresholds+1, random_state=0).fit(img_grey.reshape(-1,1))
+        centers = sorted(kmeans.cluster_centers_.flatten())
+        thresholds = np.array(list(zip(centers,centers[1:]))).mean(axis=1)
+
+        if(plot):
+            ax_index = 0
+            ax = axes[ax_index][i]
+            ax.imshow(img_grey)
+            ax.axis('off')
+            ax.set_title(f'Image with {i+1}th HSV component')
+            ax_index+=1
+
+            colours = img_grey.flatten()
+            ax = axes[ax_index][i]
+            ax.hist(colours, bins=255)
+            ax.set_title(f'Image colour distribution')
+
+            for k,center in enumerate(centers):
+                if(k==0):
+                    ax.axvline(x=center, color='black', linestyle='--',label='Cluster centers')
+                else:
+                    ax.axvline(x=center, color='black', linestyle='--')
+
+            for k,threshold in enumerate(thresholds):
+                if(k==0):
+                    ax.axvline(x=threshold, color='green', linestyle='-',label='Thresholds')
+                else:
+                    ax.axvline(x=threshold, color='green', linestyle='-')
+            ax.legend()
+            ax_index+=1
+       
+        for k, threshold in enumerate(thresholds):
+            flag, thresh_img = cv2.threshold(img_grey, threshold, 255, cv2.THRESH_BINARY)
+            contours = extract_biggest_contours(thresh_img, shape_count)
+            #Invert the image
+            contours_inv = extract_biggest_contours(~thresh_img, shape_count)
+
+            contour_candidates.append(contours)
+            contour_candidates.append(contours_inv)
+
+            if(plot):
+                ax = axes[ax_index][i]
+                ax.imshow(thresh_img)
+                ax.axis('off')
+                ax.set_title(f'Image with threshold at {threshold:.2f}')
+                ax_index+=1
+            
+                ax = axes[ax_index][i]
+                plot_contour(ax, contours, np.zeros_like(img), "Thresholding contours")
+                ax_index+=1
+
+                ax = axes[ax_index][i]
+                plot_contour(ax, contours_inv, np.zeros_like(img), "Inverted Thresholding contours")
+                ax_index+=1
+
+    if(plot):
+        plt.show()
+
+    return contour_candidates
+
+def extract_biggest_contours(bin_img,number_shapes):
+        contours, hierarchy = cv2.findContours(bin_img,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
         if(len(contours)>=number_shapes):
             contours = sorted(contours, key=cv2.contourArea,reverse=True)[:number_shapes]  
-            contour_candidates.append(contours)
+        return contours
 
-    def pick_best_contours(contour_candidates):
-        #CAVEAT: may fail if smaller other regular objects are detected =>could add a minimum contour area
-        #Assume only provided the number_shapes biggest
-        min_variance = np.inf
-        best_contour = []
+#################################################################################################
 
-        #Iterate over different methods of contours extraction
-        for contour_candidate in contour_candidates:
-            contour_areas = []
-            for contour in contour_candidate:
-                contour_areas.append(cv2.contourArea(contour))
-            area_variance = np.var(contour_areas)
-            area_mean = np.mean(contour_areas)
-            area_standardised_variance = area_variance/(area_mean**2)
-            
-            if(area_standardised_variance<min_variance):
-                min_variance = area_standardised_variance
-                best_contour = contour_candidate
+#########################################BOTTOM_CARD_EXTRACTION########################################################
 
-        return best_contour
+def pick_best_bottom_contour(contour_candidates):
+    """contour_candidates is list[[list[contour]]] and we have to chose the best list  """
+    #CAVEAT: may fail if smaller other regular objects are detected =>could add a minimum contour area
+    #Assume only provided the number_shapes biggest
+    min_variance = np.inf
+    best_contour = []
+
+    #Iterate over different methods of contours extraction
+    for contour_candidate in contour_candidates:
+        contour_areas = []
+        for contour in contour_candidate:
+            contour_areas.append(cv2.contourArea(contour))
+        area_variance = np.var(contour_areas)
+        area_mean = np.mean(contour_areas)
+        area_standardised_variance = area_variance/(area_mean**2)
+        
+        if(area_standardised_variance<min_variance):
+            min_variance = area_standardised_variance
+            best_contour = contour_candidate
+
+    return best_contour
+
+
     
     img = cv2.GaussianBlur(img,(11,11),100) 
     img_HSV = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
@@ -159,40 +221,6 @@ def extract_bottom_cards(bottom_row,plot=False):
 
     return extracted_cards
   
-#NOTE IMPLEMENTED ENTIRELLY, might be left for later
-def optimal_Gaussian_mixture_tresholding(img,n_centroids, background_is_darker, set_other_centroids_to_background=False):
-    """Does optimal thresholding by assuming the grey_img follows a n_centroid Gaussian Mixture models and choses
-    to optimally treshold by only considering the two Gaussian clusters with the most points"""
-
-    kmeans = KMeans(n_clusters=n_centroids, random_state=0).fit(img.ravel().reshape(-1,1))
-    print(kmeans.cluster_centers_)
-    cluster_sizes = Counter()
-    print(kmeans.labels_)
-    for label in range(n_centroids):
-        cluster_sizes[label] = (kmeans.labels_==label).sum()
-    
-    print(cluster_sizes)
-    top2_labels = [k for (k,v) in cluster_sizes.most_common(2)]
-    print(top2_labels)
-    top2_cluster_centers = kmeans.cluster_centers_[top2_labels]
-    background_label =  np.argmin(top2_cluster_centers) if(background_is_darker) else np.argmax(top2_cluster_centers)
-    background_label = top2_labels[background_label]
-    print(background_label)
-    foreground_label = (set(top2_labels) - {background_label}).pop()
-    print(foreground_label)
-    
-    replace_label = background_label if(set_other_centroids_to_background) else foreground_label
-    
-    labels_set = {i for i in range(n_centroids)}
-    other_labels = labels_set - set(top2_labels)
-    new_labels = kmeans.labels_.copy()
-    for label in other_labels:
-        new_labels[new_labels==label] = replace_label
-    
-    labeled_img= new_labels.reshape(img.shape).copy()
-    thresholded_img=(labeled_img!=background_label).astype(np.uint8)
-
-    return thresholded_img
 ################################################################################################# 
 
 
@@ -264,3 +292,89 @@ def table_extraction(img, table_size=3800):
     warp = cv2.warpPerspective(img,transform,(table_size,table_size)) 
     
     return warp
+
+
+##########################################LEGACY#################################################
+def _extract_bottom_cards(bottom_row,plot=False):
+    background_idx = [40,40]
+    card_idx = [550,200]
+    best_contours = optimal_contour_extraction(bottom_row,number_shapes=5,background_idx = background_idx,target_shape_idx = card_idx)
+    
+    if(plot):
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 10),tight_layout=True)
+        axes[0].imshow(bottom_row)
+        axes[0].set_title(f'Original image')
+        background = np.zeros_like(bottom_row)
+        contour_img = cv2.drawContours(background.copy(), best_contours, -1,(0,255,0),20)
+        axes[1].imshow(contour_img)
+        axes[1].set_title(f'Optimal contours')
+        plt.show()
+
+    card_size = [300,400]
+    contour_corners = []
+    for card_contour in best_contours:
+        peri = cv2.arcLength(card_contour,True)
+        approx = cv2.approxPolyDP(card_contour,0.02*peri,True)
+        corners = np.array(approx[:,0,:],np.float32) #Just remove useless middle dimension
+       
+        corners = reorder_corners(corners)
+        contour_corners.append(corners)
+
+    #Sort contours from leftmost to right_most
+    contour_corners = sorted(contour_corners,key = lambda corners: leftmost_coordinate(corners))
+    extracted_cards = []
+
+    for corners in contour_corners:
+
+        h = np.array([[0,0],[card_size[0],0],[card_size[0],card_size[1]],[0,card_size[1]] ],np.float32)
+        
+        transform = cv2.getPerspectiveTransform(corners, h)
+        card = cv2.warpPerspective(bottom_row,transform,card_size)
+        extracted_cards.append(card)
+
+    if(plot and len(extracted_cards)>0):
+        fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
+        for i,card in enumerate(extracted_cards):
+            axes[i].imshow(card)
+            axes[i].set_title(f"Card number {i}")
+        plt.show()
+
+    return extracted_cards
+
+
+def _optimal_contour_extraction(img,number_shapes,background_idx,target_shape_idx):
+    """Extracts number_shapes from the image assuming that all shapes are similar
+    Works well for extracting the contour of multiple similar elements from the image (eg: cards) 
+    Assumes provided image is in RGB"""
+
+    #NOTE: in the case of wanted rectangular shapes, we could have tried to apporximate the contour with cv2.approxPolyDP and 
+    #verify that we obtain 4 points
+
+    def filter_contour(thresh,contour_candidates):
+        """If contour_candidate has enough threshold, adds it to candidates list"""
+        contours, hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+        if(len(contours)>=number_shapes):
+            contours = sorted(contours, key=cv2.contourArea,reverse=True)[:number_shapes]  
+            contour_candidates.append(contours)
+
+    def pick_best_contours(contour_candidates):
+        #CAVEAT: may fail if smaller other regular objects are detected =>could add a minimum contour area
+        #Assume only provided the number_shapes biggest
+        min_variance = np.inf
+        best_contour = []
+
+        #Iterate over different methods of contours extraction
+        for contour_candidate in contour_candidates:
+            contour_areas = []
+            for contour in contour_candidate:
+                contour_areas.append(cv2.contourArea(contour))
+            area_variance = np.var(contour_areas)
+            area_mean = np.mean(contour_areas)
+            area_standardised_variance = area_variance/(area_mean**2)
+            
+            if(area_standardised_variance<min_variance):
+                min_variance = area_standardised_variance
+                best_contour = contour_candidate
+
+        return best_contour
