@@ -3,7 +3,6 @@ import cv2
 import matplotlib.pyplot as plt
 import math 
 from numpy.linalg import norm
-from recognition_functions import rectify
 
 class LineHelper:
      
@@ -113,17 +112,17 @@ class LineHelper:
         cv2.line(image, (int(px), int(py)), (int(qx), int(qy)), (0, 255, 0), 2)
 
 
-
 class TableExtractor:
     
-    def extract_table(self, img, table_size_px=3800, plot = False):
+    @classmethod
+    def extract_table(cls,img, table_size_px=3800, plot = False):
         # Image preprocessing
         gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray,(101,101),10) 
         flag, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_OTSU)
         opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel= np.ones((11,11), np.uint8))
         
-         # Edge detection
+        # Edge detection
         edges = cv2.Canny(opened, 50, 200, None, 3)
         
         # Detect main lines
@@ -135,7 +134,7 @@ class TableExtractor:
         # Find all intersections points within the image
         intersection_pts = LineHelper.compute_intersection_points_in_img(lines_pts, img.shape)
 
-        centers_pts = self._find_intersection_points_clusters(intersection_pts)
+        centers_pts = TableExtractor._find_intersection_points_clusters(intersection_pts)
         
         h = np.array([ [0,0],[table_size_px,0],[table_size_px,table_size_px],[0,table_size_px] ],np.float32)
         transform = cv2.getPerspectiveTransform(rectify(np.array(centers_pts)), h)
@@ -165,8 +164,8 @@ class TableExtractor:
                 
         return table_img
                 
-                
-    def _find_intersection_points_clusters(self, intersection_pts):
+    @classmethod
+    def _find_intersection_points_clusters(cls,intersection_pts):
         grid_step = 500
         
         buckets = dict()
@@ -186,6 +185,18 @@ class TableExtractor:
             center_pts.append(center_point)
         return center_pts
                
-                
+def rectify(h):
+    h = h.reshape((4,2))
+    hnew = np.zeros((4,2),dtype = np.float32)
+
+    add = h.sum(1)
+    hnew[0] = h[np.argmin(add)]
+    hnew[2] = h[np.argmax(add)]
+
+    diff = np.diff(h,axis = 1)
+    hnew[1] = h[np.argmin(diff)]
+    hnew[3] = h[np.argmax(diff)]
+
+    return hnew             
                 
     
