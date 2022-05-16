@@ -48,9 +48,9 @@ class CardClassifier:
         h, w = cc_labels.shape
         center_y, center_x = centroids[target_label]
         x, y = (cc_labels == target_label).nonzero()
-        centered_x = x - int(center_x) + int(h / 2)
-        centered_y = y - int(center_y) + int(w / 2)
-        centered_mask = np.zeros((h, w), dtype=bool)
+        centered_x = x - int(center_x) + h
+        centered_y = y - int(center_y) + w
+        centered_mask = np.zeros((2*h, 2*w), dtype=bool)
         centered_mask[(centered_x, centered_y)] = True
         
         return centered_mask
