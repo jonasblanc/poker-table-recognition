@@ -18,35 +18,93 @@ class CardClassifier:
     BOTTOM_CHAR = 0.16
     LEFT_CHAR = 0.016
     RIGHT_CHAR = 0.18
-        
-    def __init__(self):
-        PATH_CARD_CLASSIFIER_MASKS = "data/card_classifier_masks/"
+    
+    DEFAULT_CHAR = "10"
+    DEFAULT_RED_SYMBOL= "D"
+    DEFAULT_BLACK_SYMBOL= "C"
 
-        with open(PATH_CARD_CLASSIFIER_MASKS + 'name_to_mask.pickle', 'rb') as handle:
-            self.name_to_mask = pickle.load(handle)
-            for name, mask in self.name_to_mask.items():
-                self.name_to_mask[name]= mask.astype(bool)
-                
-        with open(PATH_CARD_CLASSIFIER_MASKS + 'char_to_mask.pickle', 'rb') as handle:
-            self.char_to_mask = pickle.load(handle)
-            for name, mask in self.char_to_mask.items():
-                self.char_to_mask[name]= mask.astype(bool)
-                
-                
-    def classify_card(self, card_img, card_name="Default_name", plot=False):
-        color, symbol_mask = self._extract_symbol_feature(card_img, card_name, plot)
-        symbol = self._classify_symbol_mask(color, symbol_mask)
+    MIN_PIXELS_IN_CHAR = 5
+    MIN_PIXELS_IN_SYMBOL = 5
+    
+    PATH_CARD_CLASSIFIER_MASKS = "data/card_classifier_masks/"
 
-        char_mask = self._extract_card_character(card_img, card_name, plot)
-        char = self._classify_char_mask(char_mask)
-        
-        return char + symbol
-        
+    with open(PATH_CARD_CLASSIFIER_MASKS + 'name_to_mask.pickle', 'rb') as handle:
+        name_to_mask = pickle.load(handle)
+        for name, mask in name_to_mask.items():
+            name_to_mask[name]= mask.astype(bool)
                 
-    def _create_centered_mask(self, cc_labels, target_label, centroids):
+    with open(PATH_CARD_CLASSIFIER_MASKS + 'char_to_mask.pickle', 'rb') as handle:
+        char_to_mask = pickle.load(handle)
+        for name, mask in char_to_mask.items():
+            char_to_mask[name]= mask.astype(bool)
+   
+    @classmethod       
+    def classify_cards(cls, card_imgs, card_names, result_dict, plot=False):
+        for name, card_img in zip(card_names, card_imgs):
+            label = cls.classify_card(card_img, name, plot)
+            result_dict[name] = label
+                
+    @classmethod     
+    def classify_card(cls, card_img, card_name="Default_name", plot=False):
+        # Color + symbol mask        
+        symbol_mask, mean_symbol_color  = cls._extract_centered_mask_from_img(cls._crop_symbol(card_img))
+        symbol = cls._classify_symbol_mask(mean_symbol_color, symbol_mask, plot)
+
+        # Char mask    
+        char_mask, _  = cls._extract_centered_mask_from_img(cls._crop_char(card_img))
+        char = cls._classify_char_mask(char_mask, plot)
+        
+        label = char + symbol
+        
+        if plot:
+            print(f"Predicted: {label}")
+       
+        return label
+           
+        
+    @classmethod 
+    def _extract_centered_mask_from_img(cls, zone_img, card_name="Default_name", plot=False):
+   
+        #cropped = cls._crop_char(card_img)
+    
+        labels, target_label, centroids = cls._extract_second_biggest_connected_component(zone_img, cls.MIN_PIXELS_IN_CHAR)
+        if type(labels) == type(None):
+            return None, zone_img.mean(axis=(0))
+               
+        centered_mask = cls._create_centered_mask_from_cc(labels, target_label, centroids)
+        
+        # Mean color
+        mean_color =  zone_img[np.where(labels == target_label)].mean(axis=(0))
+
+        if(plot): 
+            print(title)
+            fig, axes = plt.subplots(1, 5, figsize=(7, 30),tight_layout=True)
+            axes[0].set_title(f"Img")
+            axes[0].imshow(card_img)
+            axes[1].set_title(f"CC")
+            axes[1].imshow(labels)
+            img = zone_img.copy()
+            img[np.where(labels != target_label)] = [255, 255, 255]
+            axes[2].set_title(f"Zone of interest")
+            axes[2].imshow(img)
+            axes[3].set_title(f"Centered mask")
+            axes[3].imshow(centered_mask)
+
+        plt.show()
+
+        return centered_mask, mean_color
+    
+    @classmethod     
+    def _create_centered_mask_from_cc(cls, cc_labels, target_label, centroids):
   
         h, w = cc_labels.shape
         center_y, center_x = centroids[target_label]
+     
+        #If center is nan set it to the middle
+        if center_y != center_y:
+            center_y = h/2
+        if center_x != center_x :
+            center_x = w/2
         x, y = (cc_labels == target_label).nonzero()
         centered_x = x - int(center_x) + h
         centered_y = y - int(center_y) + w
@@ -54,58 +112,46 @@ class CardClassifier:
         centered_mask[(centered_x, centered_y)] = True
         
         return centered_mask
-            
-# ======================== CHAR Pipeline (2,3,4,5,6,7,8,9,10,J,Q,K,A) ========================
-     
-    def _crop_char(self, card_img):
-        h, w, _ = card_img.shape
-        cropped = card_img[int(self.TOP_CHAR * h):int(self.BOTTOM_CHAR * h), int(self.LEFT_CHAR *  w): int(self.RIGHT_CHAR * w)]
-        return cropped
     
-    def _plot_pipeline(self, title, cropped, thresh, cc_labels, target_label, centered_mask):
-        print(title)
-        fig, axes = plt.subplots(1, 5, figsize=(7, 30),tight_layout=True)
-        axes[0].set_title(f"Cropped")
-        axes[0].imshow(cropped)
-        axes[1].set_title(f"Threshold")
-        axes[1].imshow(thresh)
-        axes[2].set_title(f"CC")
-        axes[2].imshow(cc_labels)
-        img = cropped.copy()
-        img[np.where(cc_labels != target_label)] = [255, 255, 255]
-        axes[3].set_title(f"Extracted symbol")
-        axes[3].imshow(img)
-        axes[4].set_title(f"Centered mask")
-        axes[4].imshow(centered_mask)
-
-        plt.show()
-            
-    def _extract_card_character(self, card_img, card_name="Default_name", plot=False):
-   
-        cropped = self._crop_char(card_img)
-
-        gray = cv2.cvtColor(cropped,cv2.COLOR_BGR2GRAY)
+    @classmethod
+    def _extract_second_biggest_connected_component(cls, img, min_pixel_in_component):
+        gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
         flag, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
 
         # Extract connected components
         connectivity = 4
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(~thresh, connectivity)
 
-        # Find label with the second biggest area (after background)
-        char_label = np.argsort(stats[:,4])[::-1][1]
+        if(num_labels < 2):
+            return None, None, None
         
-        centered_mask = self._create_centered_mask(labels, char_label, centroids)
-
-  
-        if(plot): 
-            self._plot_pipeline(f"Char extraction pipeline for {card_name}", cropped, thresh, labels, char_label, centered_mask)
-
-        return centered_mask
-    
-    def _classify_char_mask(self, mask): 
+        # Find label with the second biggest area (after background)
+        target_label = np.argsort(stats[:,4])[::-1][1]
+        
+        if((labels==target_label).sum() < min_pixel_in_component):
+            return None, None, None
+        
+        return labels, target_label, centroids
+        
+            
+# ======================== CHAR Pipeline (2,3,4,5,6,7,8,9,10,J,Q,K,A) ========================
+     
+    @classmethod 
+    def _crop_char(cls, card_img):
+        h, w, _ = card_img.shape
+        cropped = card_img[int(cls.TOP_CHAR * h):int(cls.BOTTOM_CHAR * h), int(cls.LEFT_CHAR *  w): int(cls.RIGHT_CHAR * w)]
+        return cropped
+     
+    @classmethod 
+    def _classify_char_mask(cls, mask, plot = False):
+        
+        if type(mask) == type(None):
+            char = cls.DEFAULT_CHAR  
+            if plot: print(f"No char detected, set to default: {char}")
+            return char
         best_score = -1
         best_label = None
-        for label, label_mask in self.char_to_mask.items():
+        for label, label_mask in cls.char_to_mask.items():
             score = (mask & label_mask).sum() / (mask | label_mask).sum()
             if (score > best_score):
                 best_score = score
@@ -114,61 +160,32 @@ class CardClassifier:
             
 # ======================== Symbol Pipeline (S, C, H, D) ========================
 
-
-    def _crop_symbol(self, card_img):
+    @classmethod 
+    def _crop_symbol(cls, card_img):
         h, w, _ = card_img.shape
-        cropped = card_img[int(self.TOP_SYMBOL * h):int(self.BOTTOM_SYMBOL * h), int(self.LEFT_SYMBOL *  w): int(self.RIGHT_SYMBOL * w)]
+        cropped = card_img[int(cls.TOP_SYMBOL * h):int(cls.BOTTOM_SYMBOL * h), int(cls.LEFT_SYMBOL *  w): int(cls.RIGHT_SYMBOL * w)]
         return cropped        
     
-    def _extract_symbol_feature(self, card_img, card_name="Default_name", plot=False):
-        """
-        Extract features about symbol/color from an image of a card
-        Extracted feature:
-             Cropped image of the symbol
-             Detected color ('r'-red or 'b'-black)
-             A mask of the symbol centered at (25,25)
-        Assume:
-            The symbol is always at the same place defined by the constant below
-            The symbol is the second largest component after the background at that location
-            The symbol fits in 50x50
-
-        """
-
-        # Focus on symbol
-        cropped = self._crop_symbol(card_img)
-
-        gray = cv2.cvtColor(cropped,cv2.COLOR_BGR2GRAY)
-        flag, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
-
-        # Extract connected components
-        connectivity = 4
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(~thresh, connectivity)
-
-        # Find label with the second biggest area (after background)
-        symbol_label = np.argsort(stats[:,4])[::-1][1]
-
-        centered_mask = self._create_centered_mask(labels, symbol_label, centroids)
-
-        # Mean color in symbol
-        mean_color =  cropped[np.where(labels == symbol_label)].mean(axis=(0))
-
+    @classmethod 
+    def _classify_symbol_mask(cls, mean_color, mask, plot=False):
+        
         # Determine closest color between red and black
         dist_R = np.abs([255, 0, 0] - mean_color).sum()
         dist_B = mean_color.sum()
         color = 'r' if dist_B > dist_R  else 'b'
-
-        if(plot):
-            self._plot_pipeline(f"Symbol extraction pipeline for {card_name}", cropped, thresh, labels, symbol_label, centered_mask)
-
-        return color, centered_mask
-
-    def _classify_symbol_mask(self, color, mask):
+        
+        if type(mask) == type(None):
+            default_symbol = cls.DEFAULT_RED_SYMBOL if color == "r" else  cls.DEFAULT_BLACK_SYMBOL 
+            if plot:
+                print(f"No symbol detected, set to default: {default_symbol}")   
+            return default_symbol
+            
         if color == "r":
-            score_H = (self.name_to_mask["H"] & mask).sum() / (self.name_to_mask["H"] | mask).sum()
-            score_D = (self.name_to_mask["D"] & mask).sum() / (self.name_to_mask["D"] | mask).sum()
+            score_H = (cls.name_to_mask["H"] & mask).sum() / (cls.name_to_mask["H"] | mask).sum()
+            score_D = (cls.name_to_mask["D"] & mask).sum() / (cls.name_to_mask["D"] | mask).sum()
 
             return 'H' if score_H > score_D else 'D'
         elif color == "b":
-            score_C = (self.name_to_mask["C"] & mask).sum() / (self.name_to_mask["C"] | mask).sum()
-            score_S = (self.name_to_mask["S"] & mask).sum() / (self.name_to_mask["S"] | mask).sum()
+            score_C = (cls.name_to_mask["C"] & mask).sum() / (cls.name_to_mask["C"] | mask).sum()
+            score_S = (cls.name_to_mask["S"] & mask).sum() / (cls.name_to_mask["S"] | mask).sum()
             return 'C' if score_C > score_S else 'S'    
