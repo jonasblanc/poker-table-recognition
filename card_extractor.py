@@ -149,23 +149,9 @@ class CardExtractor:
     BOTTOM_CARD_MAX_AREA = 0.15
     BOTTOM_CARD_APPROX_MARGIN = 0.02
     
-    # Threshold under which a card is considered to be face down
-    BACK_CARD_SIMILARITY_TRESHOLD = 0.15
     
     def __init__(self, table_img):
         self.name_to_cropped_imgs = CardExtractor._partition_image(table_img)
-        
-    @classmethod
-    def is_card_face_down(cls, card_img, plot = False):
-        gray = cv2.cvtColor(card_img,cv2.COLOR_BGR2GRAY)
-        flag, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
-        thresh = thresh > 0
-        
-        diff = abs(thresh.sum() - (~thresh).sum())          
-        is_face_down = (diff / thresh.size) < cls.BACK_CARD_SIMILARITY_TRESHOLD
-        if (is_face_down and plot):
-            print("FACE DOWN")
-        return is_face_down
         
     def extract_player_cards(self, player, plot=False):
         if (not self.name_to_cropped_imgs):

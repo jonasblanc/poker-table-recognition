@@ -26,6 +26,9 @@ class CardClassifier:
     MIN_PIXELS_IN_CHAR = 5
     MIN_PIXELS_IN_SYMBOL = 5
     
+    # Threshold under which a card is considered to be face down
+    BACK_CARD_SIMILARITY_TRESHOLD = 0.15
+    
     PATH_CARD_CLASSIFIER_MASKS = "data/card_classifier_masks/"
 
     with open(PATH_CARD_CLASSIFIER_MASKS + 'name_to_mask.pickle', 'rb') as handle:
@@ -60,6 +63,23 @@ class CardClassifier:
             print(f"Predicted: {label}")
        
         return label
+    
+    @classmethod
+    def is_card_face_down(cls, card_img, plot = False):
+        gray = cv2.cvtColor(card_img,cv2.COLOR_BGR2GRAY)
+        flag, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
+        bin_thresh = thresh > 0
+        
+        # Extract connected components
+        connectivity = 4
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(~thresh, connectivity)
+        
+        diff = abs(bin_thresh.sum() - (~bin_thresh).sum())     
+        is_face_down_v1 = ((diff / bin_thresh.size) < cls.BACK_CARD_SIMILARITY_TRESHOLD)
+        is_face_down = num_labels > 370
+        if (is_face_down and plot):
+            print("FACE DOWN")
+        return is_face_down
            
         
     @classmethod 
