@@ -8,10 +8,32 @@ HSV_COLOR_BOUNDS = {'red':[np.array([136, 87, 111], np.uint8), np.array([180, 25
                     'green':[np.array([25, 52, 72], np.uint8), np.array([102, 255, 255], np.uint8)],
                     'blue':[np.array([94, 80, 2], np.uint8), np.array([120, 255, 255], np.uint8)]}
 
-COLOR_TO_SIMBOL = {'red':'R','blue':'B','green':'G','black':'K'}
+COLOR_TO_SIMBOL = {'red':'CR','blue':'CB','green':'CG','black':'CK'}
 
 
-def count_chips(chips_rgb,plot=False):        
+CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
+
+def crop(img,fractional_boundaries):
+    """All values in boundaries (x_min,x_max,y_min,y_max) are fraction of the corresponding length
+    Axis starts at top corner of img with first axis pointing down and second axis pointing right"""
+    
+    integer_boundaries = [0]*len(fractional_boundaries)
+    x_len = img.shape[0]
+    y_len = img.shape[1]
+
+
+    integer_boundaries[0] = int(fractional_boundaries[0] * x_len)
+    integer_boundaries[1] = int(fractional_boundaries[1] * x_len)
+    integer_boundaries[2] = int(fractional_boundaries[2] * y_len)
+    integer_boundaries[3] = int(fractional_boundaries[3] * y_len)
+
+    return img[integer_boundaries[0]:integer_boundaries[1], integer_boundaries[2]: integer_boundaries[3]]
+
+def crop_chips(table_img):
+    return crop(table_img,CHIPS_BOUNDARIES)
+
+
+def count_chips(chips_rgb, results_dict, plot=False):        
     chips_rgb = cv2.medianBlur(chips_rgb,ksize=51)
     chips_hsv = cv2.cvtColor(chips_rgb, cv2.COLOR_RGB2HSV)
 
@@ -93,18 +115,16 @@ def count_chips(chips_rgb,plot=False):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(sure_fg , connectivity , cv2.CV_32S)
         num_chips = num_labels-1 #Remove the background
         color_counts[color]=num_chips
-        print(f"Detected {num_chips} tokens of color {color}")
+        if plot:
+            print(f"Detected {num_chips} tokens of color {color}")
 
     if(plot):
         plt.show()
 
-    output = {}
-
     for color in colors:
-        output[COLOR_TO_SIMBOL[color]]=color_counts[color]
+        results_dict[COLOR_TO_SIMBOL[color]]=color_counts[color]
         
-    return output
-
+    return results_dict
     
 
 def window_treshold(img,hsv_color_bounds,color):
