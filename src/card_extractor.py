@@ -1,121 +1,17 @@
 import cv2
-from PIL import Image
-import numpy as np
-import matplotlib.pyplot as plt
-from plot_helper import plot_contours
-from sklearn.cluster import KMeans
 import math 
+import numpy as np
+from numpy.linalg import norm
+import matplotlib.pyplot as plt
 
-
-class ContourHelper:
-    
-    @classmethod
-    def extract_biggest_contours(cls, bin_img,shape_count):
-        contours, hierarchy = cv2.findContours(bin_img,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
-        if(len(contours)>=shape_count):
-            contours = sorted(contours, key=cv2.contourArea,reverse=True)[:shape_count]  
-        return contours
-    
-    @classmethod
-    def extract_candidate_contours(cls, img, shape_count,n_thresholds = 2, opening_kernel_size = None, plot = False):
-
-        number_plot_per_HSV = 2+4*n_thresholds  # (image_HSV, hist, thresholded image, opened_img, contour, countour_inv)
-        if(plot):
-            fig, axes = plt.subplots(number_plot_per_HSV, 3, figsize=(20, 20),tight_layout=True)
-
-        img = cv2.GaussianBlur(img,(11,11),100) 
-        img_HSV = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-        contour_candidates = []
-
-        for i in range(3):
-            img_grey = img_HSV[:,:,i]
-
-            #Index by stride of 16 to reduce by 256 the number of pixels K-means has to process
-            colors = img_grey[::16,::16].flatten()
-            kmeans = KMeans(n_clusters=n_thresholds+1, random_state=0).fit(colors.reshape(-1,1))
-            centers = sorted(kmeans.cluster_centers_.flatten())
-            thresholds = np.array(list(zip(centers,centers[1:]))).mean(axis=1)
-
-            if(plot):
-                ax_index = 0
-                ax = axes[ax_index][i]
-                ax.imshow(img_grey)
-                ax.axis('off')
-                ax.set_title(f'Image with {i+1}th HSV component')
-                ax_index+=1
-
-                ax = axes[ax_index][i]
-                ax.hist(colors, bins=255)
-                ax.set_title(f'Image colour distribution')
-
-                for k,center in enumerate(centers):
-                    if(k==0):
-                        ax.axvline(x=center, color='black', linestyle='--',label='Cluster centers')
-                    else:
-                        ax.axvline(x=center, color='black', linestyle='--')
-
-                for k,threshold in enumerate(thresholds):
-                    if(k==0):
-                        ax.axvline(x=threshold, color='green', linestyle='-',label='Thresholds')
-                    else:
-                        ax.axvline(x=threshold, color='green', linestyle='-')
-                ax.legend()
-                ax_index+=1
-
-            for k, threshold in enumerate(thresholds):
-                flag, thresh_img = cv2.threshold(img_grey, threshold, 255, cv2.THRESH_BINARY)
-                opened_img = thresh_img
-                opened_img_inv = ~thresh_img
-                if(opening_kernel_size!=None):
-                    kernel_size = (opening_kernel_size,opening_kernel_size)
-                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, kernel_size)
-                    opened_img = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN,kernel)
-                    opened_img_inv = cv2.morphologyEx(~thresh_img, cv2.MORPH_OPEN,kernel)
-
-
-                contours = ContourHelper.extract_biggest_contours(opened_img, shape_count)
-                #Invert the image
-                contours_inv = ContourHelper.extract_biggest_contours(opened_img_inv, shape_count)
-
-                if(len(contours)>0):
-                    contour_candidates.append(contours)
-                if(len(contours_inv)>0):
-                    contour_candidates.append(contours_inv)
-
-                if(plot):
-                    ax = axes[ax_index][i]
-                    ax.imshow(thresh_img)
-                    ax.axis('off')
-                    ax.set_title(f'Image with threshold at {threshold:.2f}')
-                    ax_index+=1
-
-                    ax = axes[ax_index][i]
-                    ax.imshow(opened_img)
-                    ax.axis('off')
-                    ax.set_title(f'Image after opening at {threshold:.2f}')
-                    ax_index+=1
-
-                    ax = axes[ax_index][i]
-                    plot_contours(contours, np.zeros_like(img), "Thresholding contours",ax)
-                    ax_index+=1
-
-                    ax = axes[ax_index][i]
-                    plot_contours(contours_inv, np.zeros_like(img), "Inverted Thresholding contours",ax)
-                    ax_index+=1
-
-        if(plot):
-            plt.show()
-
-        return contour_candidates
+from contour_helper import ContourHelper
 
 class CardExtractor:
-    
-    # Resulting img size
-    card_size = [300,400]
-    
+    """
+    Module to extract table and player cards from an image
+    """
     # Assumed pixel size of the cards in input image
-    HEIGHT_CARD = 582
-    WIDTH_CARD = 400
+    CARD_SIZE = [400, 582]
     
     # Accepted card delta for pair extraction
     ACCEPTED_HEIGHT_DELTA = 0.08
@@ -125,7 +21,7 @@ class CardExtractor:
     HEIGHT_CARD_MARGIN_PIX = 5
     WIDTH_CARD_MARGIN_PIX = 5
 
-    BOTTOM_ROW = "bottom_row"
+    TABLE_CARDS = "table_cards"
     P_1_CARDS = "P1"
     P_2_CARDS = "P2"
     P_3_CARDS = "P3"
@@ -133,7 +29,7 @@ class CardExtractor:
 
     name_to_cropped_imgs = None
     
-    BOTTOM_CARD_BOUNDARIES = [0.75,1,0.15,0.9]
+    TABLE_CARD_BOUNDARIES = [0.75,1,0.15,0.9]
     PLAYER_1_CARDS_BOUNDARIES = [0.30,0.65,0.70,1]
     PLAYER_2_CARDS_BOUNDARIES = [0,0.25,0.50,0.9]
     PLAYER_3_CARDS_BOUNDARIES = [0,0.25,0.15,0.45]
@@ -144,10 +40,10 @@ class CardExtractor:
     PAIR_CARD_MAX_AREA = 0.4
     PAIR_CARD_CONTOUR_APPROX_MARGIN = 0.001
 
-    #Bottom card contour extraction constants
-    BOTTOM_CARD_MIN_AREA = 0.05
-    BOTTOM_CARD_MAX_AREA = 0.15
-    BOTTOM_CARD_APPROX_MARGIN = 0.02
+    #Table card contour extraction constants
+    TABLE_CARD_MIN_AREA = 0.05
+    TABLE_CARD_MAX_AREA = 0.15
+    TABLE_CARD_APPROX_MARGIN = 0.02
     
     
     def __init__(self, table_img):
@@ -159,49 +55,27 @@ class CardExtractor:
               
         return CardExtractor._extract_pair_cards(self.name_to_cropped_imgs[player], plot)
           
-    def extract_bottom_cards(self, plot=False):
+    def extract_table_cards(self, plot=False):
         if (not self.name_to_cropped_imgs):
             raise ValueError
         
-        bottom_row = self.name_to_cropped_imgs[self.BOTTOM_ROW]
+        table_cards_img = self.name_to_cropped_imgs[self.TABLE_CARDS]
 
-        img_area = bottom_row.shape[0] * bottom_row.shape[1]
-        candidate_contours = ContourHelper.extract_candidate_contours(bottom_row, shape_count=5, plot=False)
-        best_contours = CardExtractor._choose_best_bottom_contour(candidate_contours, img_area)
+        img_area = table_cards_img.shape[0] * table_cards_img.shape[1]
+        candidate_contours = ContourHelper.extract_candidate_contours(table_cards_img, number_contour=5, plot=False)
+        best_contours = CardExtractor._choose_best_table_cards_contour(candidate_contours, img_area)
 
         if(plot):
             fig, axes = plt.subplots(1, 2, figsize=(10, 10), tight_layout=True)
-            axes[0].imshow(bottom_row)
+            axes[0].imshow(table_cards_img)
             axes[0].set_title(f'Original image')
-            background = np.zeros_like(bottom_row)
+            background = np.zeros_like(table_cards_img)
             contour_img = cv2.drawContours(background.copy(), best_contours, -1,(0,255,0), 20)
             axes[1].imshow(contour_img)
             axes[1].set_title(f'Best contours')
             plt.show()
 
-        contour_corners = []
-        for card_contour in best_contours:
-            peri = cv2.arcLength(card_contour,True)
-            approx = cv2.approxPolyDP(card_contour, self.BOTTOM_CARD_APPROX_MARGIN * peri,True)
-            corners = np.array(approx[:, 0, :], np.float32) #Just remove useless middle dimension
-            if(len(corners)!=4):
-                print(f"WARNING: Card approximation has more than 4 corners")
-                corners = corners[:4]
-
-            corners = self._reorder_corners(corners)
-            contour_corners.append(corners)
-
-        #Sort contours from leftmost to right_most
-        contour_corners = sorted(contour_corners,key = lambda corners: CardExtractor._leftmost_coordinate(corners))
-        extracted_cards = []
-
-        for corners in contour_corners:
-
-            h = np.array([[0,0],[self.card_size[0],0],[self.card_size[0],self.card_size[1]],[0,self.card_size[1]] ],np.float32)
-
-            transform = cv2.getPerspectiveTransform(corners, h)
-            card = cv2.warpPerspective(bottom_row,transform,self.card_size)
-            extracted_cards.append(card)
+        extracted_cards = self.extract_cards_from_contours(table_cards_img, best_contours, self.TABLE_CARD_APPROX_MARGIN)
 
         if(plot and len(extracted_cards)>0):
             fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
@@ -212,6 +86,37 @@ class CardExtractor:
 
         return extracted_cards
     
+    
+    
+    @classmethod
+    def extract_cards_from_contours(cls, img, contours, approx_margin):
+        contour_corners = []
+        for card_contour in contours:
+            peri = cv2.arcLength(card_contour, True)
+            approx = cv2.approxPolyDP(card_contour, approx_margin * peri,True)
+            corners = np.array(approx[:, 0, :], np.float32) #Just remove useless middle dimension
+            if(len(corners)!=4):
+                print(f"WARNING: Card approximation has more than 4 corners")
+                corners = corners[:4]
+
+            corners = ContourHelper.reorder_corners(corners)
+            contour_corners.append(corners)
+
+        #Sort contours from leftmost to right_most
+        contour_corners = sorted(contour_corners,key = lambda corners: cls._leftmost_coordinate(corners))
+        extracted_cards = []
+
+        for corners in contour_corners:
+
+            h = np.array([[0,0],[cls.CARD_SIZE[0],0],[cls.CARD_SIZE[0],cls.CARD_SIZE[1]],[0,cls.CARD_SIZE[1]] ],np.float32)
+
+            transform = cv2.getPerspectiveTransform(corners, h)
+            card = cv2.warpPerspective(img, transform, cls.CARD_SIZE)
+            extracted_cards.append(card)
+            
+        return extracted_cards
+        
+    
     @classmethod
     def _extract_pair_cards(cls, cards_img, plot=False):
         """
@@ -219,7 +124,7 @@ class CardExtractor:
         """
 
         # Extract contour
-        candidate_contours = ContourHelper.extract_candidate_contours(cards_img,shape_count = 1,n_thresholds=2,plot=False)
+        candidate_contours = ContourHelper.extract_candidate_contours(cards_img, number_contour = 1,n_thresholds=2,plot=False)
         img_area = cards_img.shape[0] * cards_img.shape[1]
         best_contour = cls._choose_best_pair_contour(candidate_contours, img_area)
 
@@ -233,8 +138,8 @@ class CardExtractor:
             diff.append(np.linalg.norm(approx_vertices[i]-approx_vertices[i-1]))
         diff = np.array(diff)
 
-        distance_to_height = np.abs(diff - cls.HEIGHT_CARD) / cls.HEIGHT_CARD
-        distance_to_width = np.abs(diff - cls.WIDTH_CARD) / cls.WIDTH_CARD
+        distance_to_height = np.abs(diff - cls.CARD_SIZE[1]) / cls.CARD_SIZE[1]
+        distance_to_width = np.abs(diff - cls.CARD_SIZE[0]) / cls.CARD_SIZE[0]
 
         min_height_dist_idxes = np.argsort(distance_to_height)
         min_width_dist_idxes = np.argsort(distance_to_width)
@@ -244,7 +149,6 @@ class CardExtractor:
         bottom_card = None
         top_card_corners = []
         bottom_card_corners = []
-        corners_list = []
         
         is_height_done = False
         is_width_done = False
@@ -275,9 +179,7 @@ class CardExtractor:
                 w_idx += 1
                 
                 if plot: print(f"Extracted player card with width pipeline: is top card:{is_card_on_top}")
-
-
-                
+                    
             else:
                 
                 c1 = approx_vertices[min_height_dist_idxes[h_idx]]
@@ -287,18 +189,15 @@ class CardExtractor:
                 h_idx +=1
                              
                 if plot: print(f"Extracted player card with height pipeline: is top card:{is_card_on_top}")
-
-
-        
-            corners_list.append(corners)
-
+                    
             if (is_card_on_top and type(top_card) == type(None)):
                 top_card = card
                 top_card_corners = corners
+
+
             elif((not is_card_on_top) and type(bottom_card) == type(None)): 
                 bottom_card = card
                 bottom_card_corners = corners
-
 
         if plot:
             fig, axes = plt.subplots(1, 5, figsize=(7, 30),tight_layout=True)
@@ -312,10 +211,13 @@ class CardExtractor:
             axes[1].imshow(contours_img)
             
             pot_corner_img = cv2.drawContours(np.zeros(cards_img.shape), best_contour, -1,(255,0,0),20)
-            colors = [(255, 255, 0), (0, 255 , 255)]
-            for corners, color in zip(corners_list, colors):
-                for c in corners:
-                    cv2.circle(pot_corner_img, (int(c[0]), int(c[1])), radius=10, color=color, thickness=15)
+           
+            for c in top_card_corners:
+                cv2.circle(pot_corner_img, (int(c[0]), int(c[1])), radius=10, color=(255, 255, 0), thickness=15)
+                
+            for c in bottom_card_corners:
+                cv2.circle(pot_corner_img, (int(c[0]), int(c[1])), radius=10, color=(0, 255 , 255), thickness=15)
+                
             axes[2].set_title(f"Corners")
             axes[2].imshow(pot_corner_img)
             
@@ -324,36 +226,20 @@ class CardExtractor:
                 axes[3].imshow(bottom_card)
             else:
                 axes[3].set_title(f"No success")
-                axes[3].imshow(np.zeros(cls.card_size))
+                axes[3].imshow(np.zeros(cls.CARD_SIZE))
 
             if(type(top_card) != type(None)):
                 axes[4].set_title(f"Top")
                 axes[4].imshow(top_card)
             else:
                 axes[4].set_title(f"No success")
-                axes[4].imshow(np.zeros(cls.card_size))
+                axes[4].imshow(np.zeros(cls.CARD_SIZE))
 
 
             plt.show()
 
         return bottom_card, top_card
-    
-    @classmethod
-    def _add_margin(cls, corners):
-        down_height_vec = corners[3] - corners[0]
-        down_height_margin_vec =  down_height_vec / np.linalg.norm(down_height_vec) * cls.HEIGHT_CARD_MARGIN_PIX
-
-        right_width_vec = corners[1] - corners[0]
-        right_width_margin_vec =  right_width_vec / np.linalg.norm(right_width_vec) * cls.WIDTH_CARD_MARGIN_PIX
-
-        new_corners = []
-        new_corners.append(list(corners[0] - down_height_margin_vec - right_width_margin_vec)) # top left - down - right
-        new_corners.append(list(corners[1] - down_height_margin_vec + right_width_margin_vec)) # top right - down + right
-        new_corners.append(list(corners[2] + down_height_margin_vec + right_width_margin_vec)) # bottom right + down + right
-        new_corners.append(list(corners[3] + down_height_margin_vec - right_width_margin_vec)) # bottom left + down - right
-
-        return np.array(new_corners)
-    
+        
     @classmethod
     def _perpendicular_unity_vector_2d(cls, v):
         per = [v[1], - v[0]]
@@ -381,7 +267,7 @@ class CardExtractor:
         width_vec = pot_corner_2 - pot_corner_1
 
         # Find third corner along the height of the card
-        height_vec = cls._perpendicular_unity_vector_2d(width_vec) * cls.HEIGHT_CARD
+        height_vec = cls._perpendicular_unity_vector_2d(width_vec) * cls.CARD_SIZE[1]
         mean_pts = approx_vertices.mean(axis = 0)
 
         # If the right_most corner is on the right of the mean then is the top card
@@ -400,12 +286,13 @@ class CardExtractor:
         pot_corner_4 = pot_corner_2 + height_vec
 
         # Reorder, and extend by a small margin the side of the card
-        corners = cls._add_margin(cls._reorder_corners(np.array([pot_corner_1, pot_corner_2, pot_corner_3, pot_corner_4])))
+        corners = ContourHelper.reorder_corners(np.array([pot_corner_1, pot_corner_2, pot_corner_3, pot_corner_4]))
+        corners = ContourHelper.add_margin(corners, cls.HEIGHT_CARD_MARGIN_PIX, cls.WIDTH_CARD_MARGIN_PIX)
 
         # Extract the card
-        h = np.array([[0,0],[cls.card_size[0],0],[cls.card_size[0],cls.card_size[1]],[0,cls.card_size[1]] ],np.float32)
+        h = np.array([[0,0],[cls.CARD_SIZE[0],0],[cls.CARD_SIZE[0],cls.CARD_SIZE[1]],[0,cls.CARD_SIZE[1]] ],np.float32)
         transform = cv2.getPerspectiveTransform(corners, h)
-        extracted_card = cv2.warpPerspective(img,transform,cls.card_size)
+        extracted_card = cv2.warpPerspective(img,transform,cls.CARD_SIZE)
 
         return extracted_card, is_card_on_top, corners
     
@@ -417,7 +304,7 @@ class CardExtractor:
         height_vec = pot_corner_2 - pot_corner_1
 
         # Find third corner along the width
-        width_vec = cls._perpendicular_unity_vector_2d(height_vec) * cls.WIDTH_CARD
+        width_vec = cls._perpendicular_unity_vector_2d(height_vec) * cls.CARD_SIZE[0]
         mean_pts = approx_vertices.mean(axis = 0)
 
         # If the right_most corner is on the right of the mean then is the top card
@@ -437,45 +324,16 @@ class CardExtractor:
         pot_corner_4 = pot_corner_2 + width_vec
 
         # Reorder, and extend by a small margin the side of the card
-        corners = cls._add_margin(cls._reorder_corners(np.array([pot_corner_1, pot_corner_2, pot_corner_3, pot_corner_4])))
+        corners = ContourHelper.reorder_corners(np.array([pot_corner_1, pot_corner_2, pot_corner_3, pot_corner_4]))
+        corners = ContourHelper.add_margin(corners, cls.HEIGHT_CARD_MARGIN_PIX, cls.WIDTH_CARD_MARGIN_PIX)
 
         # Extract the card
-        h = np.array([[0,0],[cls.card_size[0],0],[cls.card_size[0],cls.card_size[1]],[0,cls.card_size[1]] ],np.float32)
+        h = np.array([[0,0],[cls.CARD_SIZE[0],0],[cls.CARD_SIZE[0],cls.CARD_SIZE[1]],[0,cls.CARD_SIZE[1]] ],np.float32)
         transform = cv2.getPerspectiveTransform(corners, h)
-        extracted_card = cv2.warpPerspective(img,transform,cls.card_size)
+        extracted_card = cv2.warpPerspective(img,transform,cls.CARD_SIZE)
 
         return extracted_card, is_card_on_top, corners
-    
-    @classmethod
-    def _reorder_corners(cls, corners):
-        """ Reorder the corners so they have a deterministic order: top_left,top_right,bottom_right,bottom_left] 
-        corners: numpy array of (4,2)
-        """
-        #NOTE: in the corners opencv representation, the first axis goes left 
-        # and the second goes down (inverse of standardimamge representation)
-
-        new_corners = np.empty((4,2),np.float32)
-
-        mean_x = corners[:,0].mean()
-        mean_y = corners[:,1].mean()
-
-        for x,y in corners:
-            corner = np.array([x,y])
-            if(x<mean_x and y<mean_y):
-                new_corners[0][0] = x
-                new_corners[0][1] = y
-            elif(x>mean_x and y<mean_y):
-                new_corners[1][0] = x
-                new_corners[1][1] = y
-            elif(x>mean_x and y>mean_y):
-                new_corners[2][0] = x
-                new_corners[2][1] = y
-            else:
-                new_corners[3][0] = x
-                new_corners[3][1] = y
-
-        return new_corners
-    
+        
     @classmethod
     def _leftmost_coordinate(cls, corners):
         #NOTE: uses open cv corner representation (first axis points left)
@@ -487,7 +345,7 @@ class CardExtractor:
         """Partition the image into cards/chips sections"""
         result = {}
         
-        result[cls.BOTTOM_ROW] = cls._crop(img, cls.BOTTOM_CARD_BOUNDARIES)
+        result[cls.TABLE_CARDS] = cls._crop(img, cls.TABLE_CARD_BOUNDARIES)
         result[cls.P_1_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_1_CARDS_BOUNDARIES), 3)
         result[cls.P_2_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_2_CARDS_BOUNDARIES), 2)
         result[cls.P_3_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_3_CARDS_BOUNDARIES), 2)
@@ -522,7 +380,7 @@ class CardExtractor:
             #Only one contour kept in image
             contour = contour[0]
             peri = cv2.arcLength(contour,False)
-            #Set a strict precision treshold on polynomial approximation
+            #Set a strict precision threshold on polynomial approximation
             approx = cv2.approxPolyDP(contour, cls.PAIR_CARD_CONTOUR_APPROX_MARGIN*peri,True)
             vertices_count = len(approx)
             area = cv2.contourArea(contour)
@@ -533,7 +391,7 @@ class CardExtractor:
         return best_candidate
     
     @classmethod
-    def _choose_best_bottom_contour(cls, candidate_contours,img_area):
+    def _choose_best_table_cards_contour(cls, candidate_contours,img_area):
         """contour_candidates is list[[list[contour]]] and we have to chose the best list  """
         #Assume only provided the biggest n shapes
         min_variance = np.inf
@@ -549,7 +407,7 @@ class CardExtractor:
 
             area_standardised_variance = area_variance/(area_mean**2)
 
-            if(len(candidate_contour) == 5 and area_standardised_variance < min_variance and area_mean > cls.BOTTOM_CARD_MIN_AREA*img_area and area_mean < cls.BOTTOM_CARD_MAX_AREA*img_area):
+            if(len(candidate_contour) == 5 and area_standardised_variance < min_variance and area_mean > cls.TABLE_CARD_MIN_AREA*img_area and area_mean < cls.TABLE_CARD_MAX_AREA*img_area):
                 min_variance = area_standardised_variance
                 best_contour = candidate_contour
 
