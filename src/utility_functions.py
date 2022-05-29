@@ -10,7 +10,6 @@ def crop(img,fractional_boundaries):
     x_len = img.shape[0]
     y_len = img.shape[1]
 
-
     integer_boundaries[0] = int(fractional_boundaries[0] * x_len)
     integer_boundaries[1] = int(fractional_boundaries[1] * x_len)
     integer_boundaries[2] = int(fractional_boundaries[2] * y_len)

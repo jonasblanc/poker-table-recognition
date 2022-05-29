@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 from line_helper import LineHelper
 from contour_helper import ContourHelper
+from utility_functions import crop
 
 class TableExtractor:
     """
@@ -14,6 +15,8 @@ class TableExtractor:
     
     EXTRACTION_MARGIN_HEIGHT = 20
     EXTRACTION_MARGIN_WIDTH = 20
+    
+    DEFAULT_CROP = [0.06, 0.94, 0.16, 0.84]
     
     @classmethod
     def extract_tables(cls, imgs, table_size_px=3800, plot = False):
@@ -58,10 +61,19 @@ class TableExtractor:
         lines_pts = LineHelper.transform_lines_from_polar_to_points(lines)
         
         # Find all intersections points within the image
-        intersection_pts = LineHelper.compute_intersection_points_in_img(lines_pts, img.shape)        
-
+        intersection_pts = LineHelper.compute_intersection_points_in_img(lines_pts, img.shape) 
+        
+        if len(intersection_pts) < 4:
+            print("Warning not enough intersection point for table extraction: default crop")
+            return crop(img, cls.DEFAULT_CROP)
+            
         #centers_pts = cls._find_intersection_points_clusters_grid(intersection_pts)
         centers_pts = np.array(cls._find_intersection_points_clusters_distance(intersection_pts))
+        
+        if (centers_pts.shape[0] < 4):
+            print("Warning not enough intersection points clusters for table extraction: default crop")
+            return crop(img, cls.DEFAULT_CROP)
+        
         centers_pts = ContourHelper.reorder_corners(centers_pts)
         centers_pts = ContourHelper.add_margin(centers_pts, cls.EXTRACTION_MARGIN_HEIGHT, cls.EXTRACTION_MARGIN_WIDTH)
 

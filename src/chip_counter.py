@@ -54,18 +54,117 @@ class ChipCounter:
 
         reconstructed_img_hsv = cv2.merge([h, s, v])
 
-        return reconstructed_img_hsv.astype("uint8")
-
+        return reconstructed_img_hsv.astype("uint8") 
+    
     @classmethod
     def count_chips(cls, table_img, results_dict, plot=False):
         """
         Count chips by color on a rgb image
         Store result in results_dict with color key
         """
-        chips_rgb = cls._crop_chips(table_img)
-        chips_rgb = cv2.medianBlur(chips_rgb,ksize=51)
-        chips_hsv = cv2.cvtColor(chips_rgb, cv2.COLOR_RGB2HSV)
+        
+        def detect_circle(img):
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            gray = cv2.medianBlur(gray, 15)
 
+            rows = gray.shape[0]
+            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 100,
+                                   param1=40, param2=10,
+                                   minRadius=128, maxRadius=135)
+            return circles
+            
+        def create_circular_mask(h, w, center=None, radius=None):
+
+            if center is None: # use the middle of the image
+                center = (int(w/2), int(h/2))
+            if radius is None: # use the smallest distance between the center and image walls
+                radius = min(center[0], center[1], w-center[0], h-center[1])
+
+            Y, X = np.ogrid[:h, :w]
+            dist_from_center = np.sqrt((X - center[0])**2 + (Y-center[1])**2)
+
+            mask = dist_from_center <= radius
+            return mask
+        
+        # Select chips area
+        chips_rgb = cls._crop_chips(table_img)
+        
+        # Preprocess chips for color thresholding
+        blured_chips_rgb = cv2.medianBlur(chips_rgb,ksize=51)
+        chips_hsv = cv2.cvtColor(blured_chips_rgb, cv2.COLOR_RGB2HSV)
+        chips_hsv = cls._normalize_brightness_hsv(chips_hsv)
+
+        
+        # Create binary mask for each color
+        colors_maks = {}
+        color_names = cls.HSV_COLOR_BOUNDS.keys()
+        for i, color_name in enumerate(color_names):
+            chips_mask = np.zeros((chips_hsv.shape[0], chips_hsv.shape[1]), bool)
+                    
+            for low, high in cls.HSV_COLOR_BOUNDS[color_name]:
+                chips_mask |= cv2.inRange(chips_hsv,low,high).astype(bool)
+                
+            colors_maks[color_name] = chips_mask
+        
+        # Detect circles and assign it color with the largest intersection
+        color_counts = Counter()
+        circles = detect_circle(chips_rgb)
+        if circles is not None:
+            circles = np.uint16(np.around(circles))
+            for i in circles[0, :]:
+                center = (i[0], i[1])
+                radius = i[2]
+                
+                # Coord of pixel inside the circle
+                mask = create_circular_mask(chips_rgb.shape[0], chips_rgb.shape[1], center, radius)
+                
+                max_count = 0
+                best_color_name = None
+                for i, color_name in enumerate(color_names):
+                    
+                    # Number of pixel in the circle of the given color 
+                    intersection = mask & colors_maks[color_name]
+                    count = intersection.sum()
+                  
+                    if count > max_count:
+                        max_count = count
+                        best_color_name = color_name
+
+                if best_color_name != None:
+                    color_counts[best_color_name]+=1
+                    
+                    if plot:
+                        fig, axes = plt.subplots(1, 3, figsize=(4, 4), tight_layout=True)
+
+                        axes[0].imshow(chips_rgb)
+                        axes[0].set_title(f"Original")
+                        
+                        axes[1].imshow(colors_maks[best_color_name])
+                        axes[1].set_title(f"Best color mask")
+
+                        axes[2].imshow(mask)
+                        axes[2].set_title(f"circle mask")
+                        plt.show()       
+
+                else:
+                    print("Warning circle with no thresholded color inside")
+        
+
+        for color in color_names:
+            results_dict[cls.COLOR_TO_SIMBOL[color]]=color_counts[color]
+
+        return results_dict
+    
+    @classmethod
+    def count_chips_distance_map(cls, table_img, results_dict, plot=False):
+        """
+        Count chips by color on a rgb image
+        Store result in results_dict with color key
+        """
+                
+        chips_rgb = cls._crop_chips(table_img)        
+        blured_chips_rgb = cv2.medianBlur(chips_rgb,ksize=51)
+        chips_hsv = cv2.cvtColor(blured_chips_rgb, cv2.COLOR_RGB2HSV)
         chips_hsv = cls._normalize_brightness_hsv(chips_hsv)
 
         color_names = cls.HSV_COLOR_BOUNDS.keys()

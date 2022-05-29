@@ -109,9 +109,13 @@ class CardExtractor:
             
             if(len(extracted_cards) > 0):
                 fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
-                for i,card in enumerate(extracted_cards):
-                    axes[i].imshow(card)
-                    axes[i].set_title(f"Card number {i}")
+                if len(extracted_cards) == 1:
+                    axes.imshow(extracted_cards[0])
+                    axes.set_title(f"Card number {0}")
+                else:
+                    for i,card in enumerate(extracted_cards):
+                        axes[i].imshow(card)
+                        axes[i].set_title(f"Card number {i}")
                 plt.show()            
 
         return extracted_cards
@@ -128,12 +132,14 @@ class CardExtractor:
             peri = cv2.arcLength(card_contour, True)
             approx = cv2.approxPolyDP(card_contour, approx_margin * peri,True)
             corners = np.array(approx[:, 0, :], np.float32) #Just remove useless middle dimension
-            if(len(corners)!=4):
+            if(len(corners)>4):
                 print(f"WARNING: Card approximation has more than 4 corners")
                 corners = corners[:4]
-
-            corners = ContourHelper.reorder_corners(corners)
-            contour_corners.append(corners)
+            elif (len(corners)<4):
+                print(f"WARNING: Card approximation has less than 4 corners")
+            else:
+                corners = ContourHelper.reorder_corners(corners)
+                contour_corners.append(corners)
 
         #Sort contours from leftmost to right_most
         contour_corners = sorted(contour_corners,key = lambda corners: cls._leftmost_coordinate(corners))
@@ -160,6 +166,10 @@ class CardExtractor:
         candidate_contours = ContourHelper.extract_candidate_contours(cards_img, number_contour = 1,n_thresholds=2,plot=False)
         img_area = cards_img.shape[0] * cards_img.shape[1]
         best_contour = cls._choose_best_pair_contour(candidate_contours, img_area)
+        
+        if(len(best_contour) == 0):
+            print("Warning: No contour detected for player card extraction")
+            return None, None
 
         peri = cv2.arcLength(best_contour,False)
         approx_vertices = cv2.approxPolyDP(best_contour,corners_approx_margin * peri,True)[:,0]
@@ -192,12 +202,10 @@ class CardExtractor:
         while(type(top_card) == type(None) or type(bottom_card) == type(None)):
             
             # Height corners are done if no more corner are above the accepted delta
-            is_height_done |= h_idx >= len(min_height_dist_idxes) 
-            is_height_done |= distance_to_height[min_height_dist_idxes[h_idx]] > cls.ACCEPTED_HEIGHT_DELTA
-            
+            is_height_done |= h_idx >= len(min_height_dist_idxes) or distance_to_height[min_height_dist_idxes[h_idx]] > cls.ACCEPTED_HEIGHT_DELTA
+        
             # Width corners are done if no more corner are above the accepted delta
-            is_width_done |= w_idx >= len(min_width_dist_idxes)
-            is_width_done |= distance_to_width[min_width_dist_idxes[w_idx]] > cls.ACCEPTED_WIDTH_DELTA
+            is_width_done |= w_idx >= len(min_width_dist_idxes) or distance_to_width[min_width_dist_idxes[w_idx]] > cls.ACCEPTED_WIDTH_DELTA
                  
             # If both inputs are done, exit the loop even if we were not able to extract both images
             if (is_height_done and is_width_done):
