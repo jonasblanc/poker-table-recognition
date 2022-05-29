@@ -4,6 +4,7 @@ import numpy as np
 from numpy.linalg import norm
 import matplotlib.pyplot as plt
 
+from utility_functions import *
 from contour_helper import ContourHelper
 
 class CardExtractor:
@@ -21,7 +22,7 @@ class CardExtractor:
     HEIGHT_CARD_MARGIN_PIX = 5
     WIDTH_CARD_MARGIN_PIX = 5
 
-    TABLE_CARDS = "table_cards"
+    TABLE_CARDS = "T"
     P_1_CARDS = "P1"
     P_2_CARDS = "P2"
     P_3_CARDS = "P3"
@@ -47,15 +48,45 @@ class CardExtractor:
     
     
     def __init__(self, table_img):
-        self.name_to_cropped_imgs = CardExtractor._partition_image(table_img)
+        self.name_to_cropped_imgs = self._partition_image(table_img)
+        
+    def extract_cards_area(self, position):
+        """
+        Crop the table image to return a image of the area of table/player's cards 
+        position: ['T', 'P1', 'P2', 'P3', 'P4']
+        """
+        return self.name_to_cropped_imgs[position]
         
     def extract_player_cards(self, player, plot=False):
+        """
+        Crop the table image to return two images of the cards of a player
+        player: ['P1', 'P2', 'P3', 'P4']
+        """
         if (not self.name_to_cropped_imgs):
             raise ValueError
-              
-        return CardExtractor._extract_pair_cards(self.name_to_cropped_imgs[player], plot)
+            
+        corners_approx_margin_factors = [0.005, 0.01, 0.05]
+        bottom_card, top_card = (None, None)
+        
+        player_cards_img = self.name_to_cropped_imgs[player]
+        
+        # Try out multiple approximation margin to maximise the possibility of card extraction
+        for f in corners_approx_margin_factors:
+            pot_bottom_card, pot_top_card = self._extract_pair_cards(player_cards_img, corners_approx_margin=f,plot=plot)
+            if type(top_card) == type(None):
+                top_card = pot_top_card
+            if type(bottom_card) == type(None):
+                bottom_card = pot_bottom_card
+            if (type(top_card) != type(None) and type(bottom_card) != type(None)):
+                break
+                
+        return bottom_card, top_card
           
     def extract_table_cards(self, plot=False):
+        """
+        Crop the table image to return five images of the table cards of a player
+        player: ['P1', 'P2', 'P3', 'P4']
+        """
         if (not self.name_to_cropped_imgs):
             raise ValueError
         
@@ -63,7 +94,8 @@ class CardExtractor:
 
         img_area = table_cards_img.shape[0] * table_cards_img.shape[1]
         candidate_contours = ContourHelper.extract_candidate_contours(table_cards_img, number_contour=5, plot=False)
-        best_contours = CardExtractor._choose_best_table_cards_contour(candidate_contours, img_area)
+        best_contours = self._choose_best_table_cards_contour(candidate_contours, img_area)
+        extracted_cards = self.extract_cards_from_contours(table_cards_img, best_contours, self.TABLE_CARD_APPROX_MARGIN)
 
         if(plot):
             fig, axes = plt.subplots(1, 2, figsize=(10, 10), tight_layout=True)
@@ -74,22 +106,23 @@ class CardExtractor:
             axes[1].imshow(contour_img)
             axes[1].set_title(f'Best contours')
             plt.show()
-
-        extracted_cards = self.extract_cards_from_contours(table_cards_img, best_contours, self.TABLE_CARD_APPROX_MARGIN)
-
-        if(plot and len(extracted_cards)>0):
-            fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
-            for i,card in enumerate(extracted_cards):
-                axes[i].imshow(card)
-                axes[i].set_title(f"Card number {i}")
-            plt.show()
+            
+            if(len(extracted_cards) > 0):
+                fig, axes = plt.subplots(1, len(extracted_cards), figsize=(10, 15),tight_layout=True)
+                for i,card in enumerate(extracted_cards):
+                    axes[i].imshow(card)
+                    axes[i].set_title(f"Card number {i}")
+                plt.show()            
 
         return extracted_cards
     
     
-    
     @classmethod
     def extract_cards_from_contours(cls, img, contours, approx_margin):
+        """
+        Crop image based on a list of contours
+        approx_margin: the factor of deviation from perimeter allowed 
+        """
         contour_corners = []
         for card_contour in contours:
             peri = cv2.arcLength(card_contour, True)
@@ -118,7 +151,7 @@ class CardExtractor:
         
     
     @classmethod
-    def _extract_pair_cards(cls, cards_img, plot=False):
+    def _extract_pair_cards(cls, cards_img, corners_approx_margin=0.005, plot=False):
         """
         Return first card on the bottom then card on the top
         """
@@ -129,7 +162,7 @@ class CardExtractor:
         best_contour = cls._choose_best_pair_contour(candidate_contours, img_area)
 
         peri = cv2.arcLength(best_contour,False)
-        approx_vertices = cv2.approxPolyDP(best_contour,0.005 *peri,True)[:,0]
+        approx_vertices = cv2.approxPolyDP(best_contour,corners_approx_margin * peri,True)[:,0]
 
         diff = []
 
@@ -190,7 +223,9 @@ class CardExtractor:
                              
                 if plot: print(f"Extracted player card with height pipeline: is top card:{is_card_on_top}")
                     
-            if (is_card_on_top and type(top_card) == type(None)):
+            if (not cls._are_points_in_image(corners, cards_img.shape)):
+                if plot: print(f"Detected side lead to corners outisde the image")
+            elif (is_card_on_top and type(top_card) == type(None)):
                 top_card = card
                 top_card_corners = corners
 
@@ -239,14 +274,39 @@ class CardExtractor:
             plt.show()
 
         return bottom_card, top_card
+    
+    @classmethod
+    def _is_point_in_image(cls, pt, img_shape):
+        """
+        Check if the point is inside the image 
+        """
+        y, x = pt
+        width, height, _ = img_shape
+        return 0 <= x and x < width and 0 <= y and y < height
         
     @classmethod
-    def _perpendicular_unity_vector_2d(cls, v):
+    def _are_points_in_image(cls, pts, img_shape):
+        """
+        Check if the points are inside the image 
+        """
+        for pt in pts:
+            if(not cls._is_point_in_image(pt, img_shape)):
+                return False
+        return True
+        
+    @classmethod
+    def _perpendicular_unit_vector_2d(cls, v):
+        """
+        Compute a unit perpendicular vector to v
+        """
         per = [v[1], - v[0]]
         return per / np.linalg.norm(per)
     
     @classmethod
     def _is_top_card(cls,  corner_1, corner_2, mean_pts):
+        """
+        Return true if the corner are part of top card corners
+        """
         
         # Signed distance to righ most corner
         dist_to_right =  max(corner_1[0], corner_2[0]) - mean_pts[0]
@@ -267,7 +327,7 @@ class CardExtractor:
         width_vec = pot_corner_2 - pot_corner_1
 
         # Find third corner along the height of the card
-        height_vec = cls._perpendicular_unity_vector_2d(width_vec) * cls.CARD_SIZE[1]
+        height_vec = cls._perpendicular_unit_vector_2d(width_vec) * cls.CARD_SIZE[1]
         mean_pts = approx_vertices.mean(axis = 0)
 
         # If the right_most corner is on the right of the mean then is the top card
@@ -304,7 +364,7 @@ class CardExtractor:
         height_vec = pot_corner_2 - pot_corner_1
 
         # Find third corner along the width
-        width_vec = cls._perpendicular_unity_vector_2d(height_vec) * cls.CARD_SIZE[0]
+        width_vec = cls._perpendicular_unit_vector_2d(height_vec) * cls.CARD_SIZE[0]
         mean_pts = approx_vertices.mean(axis = 0)
 
         # If the right_most corner is on the right of the mean then is the top card
@@ -345,30 +405,13 @@ class CardExtractor:
         """Partition the image into cards/chips sections"""
         result = {}
         
-        result[cls.TABLE_CARDS] = cls._crop(img, cls.TABLE_CARD_BOUNDARIES)
-        result[cls.P_1_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_1_CARDS_BOUNDARIES), 3)
-        result[cls.P_2_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_2_CARDS_BOUNDARIES), 2)
-        result[cls.P_3_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_3_CARDS_BOUNDARIES), 2)
-        result[cls.P_4_CARDS] = np.rot90(cls._crop(img, cls.PLAYER_4_CARDS_BOUNDARIES))
+        result[cls.TABLE_CARDS] = crop(img, cls.TABLE_CARD_BOUNDARIES)
+        result[cls.P_1_CARDS] = np.rot90(crop(img, cls.PLAYER_1_CARDS_BOUNDARIES), 3)
+        result[cls.P_2_CARDS] = np.rot90(crop(img, cls.PLAYER_2_CARDS_BOUNDARIES), 2)
+        result[cls.P_3_CARDS] = np.rot90(crop(img, cls.PLAYER_3_CARDS_BOUNDARIES), 2)
+        result[cls.P_4_CARDS] = np.rot90(crop(img, cls.PLAYER_4_CARDS_BOUNDARIES))
 
         return result
-    
-    @classmethod
-    def _crop(cls, img,fractional_boundaries):
-        """All values in boundaries (x_min,x_max,y_min,y_max) are fraction of the corresponding length
-        Axis starts at top corner of img with first axis pointing down and second axis pointing right"""
-
-        integer_boundaries = [0]*len(fractional_boundaries)
-        x_len = img.shape[0]
-        y_len = img.shape[1]
-
-
-        integer_boundaries[0] = int(fractional_boundaries[0] * x_len)
-        integer_boundaries[1] = int(fractional_boundaries[1] * x_len)
-        integer_boundaries[2] = int(fractional_boundaries[2] * y_len)
-        integer_boundaries[3] = int(fractional_boundaries[3] * y_len)
-
-        return img[integer_boundaries[0]:integer_boundaries[1], integer_boundaries[2]: integer_boundaries[3]]
     
     @classmethod
     def _choose_best_pair_contour(cls, candidate_contours,img_area):

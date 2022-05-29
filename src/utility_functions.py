@@ -1,10 +1,5 @@
 import numpy as np
 
-BOTTOM_CARD_BOUNDARIES = [0.75,1,0.15,0.9]
-LEFT_CARD_BOUNDARIES  = [0.30,0.65,0,0.25]
-RIGHT_CARD_BOUNDARIES = [0.30,0.65,0.75,1]
-TOP_LEFT_CARD_BOUNDARIES = [0,0.25,0.15,0.45]
-TOP_RIGHT_CARD_BOUNDARIES = [0,0.25,0.50,0.9]
 CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
 
 def crop(img,fractional_boundaries):
@@ -23,21 +18,4 @@ def crop(img,fractional_boundaries):
 
     return img[integer_boundaries[0]:integer_boundaries[1], integer_boundaries[2]: integer_boundaries[3]]
 
-def partition_image(img):
-    """Partition the image into cards/chips sections"""
-    result = {}
-
-    result['bottom_row'] = crop(img,BOTTOM_CARD_BOUNDARIES)
-    result['left_cards'] = crop(img,LEFT_CARD_BOUNDARIES)
-    result['right_cards'] =  crop(img,RIGHT_CARD_BOUNDARIES)
-    result['top_left_cards'] = crop(img,TOP_LEFT_CARD_BOUNDARIES)
-    result['top_right_cards'] = crop(img,TOP_RIGHT_CARD_BOUNDARIES)
-    result['chips'] = crop(img,CHIPS_BOUNDARIES)
-
-    return result
-
-def partition_images(imgs):
-    """Partition the images into cards/chips sections"""
-    partitions = []
-    return [partition_image(img) for img in imgs]
     

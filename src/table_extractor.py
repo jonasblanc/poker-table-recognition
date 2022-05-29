@@ -12,6 +12,9 @@ class TableExtractor:
     Module to identify and extract the table from a top view image.
     """
     
+    EXTRACTION_MARGIN_HEIGHT = 20
+    EXTRACTION_MARGIN_WIDTH = 20
+    
     @classmethod
     def extract_tables(cls, imgs, table_size_px=3800, plot = False):
         """ Extract images of the table from alist of top view images 
@@ -60,7 +63,7 @@ class TableExtractor:
         #centers_pts = cls._find_intersection_points_clusters_grid(intersection_pts)
         centers_pts = np.array(cls._find_intersection_points_clusters_distance(intersection_pts))
         centers_pts = ContourHelper.reorder_corners(centers_pts)
-        centers_pts = ContourHelper.add_margin(centers_pts, 50, 50)
+        centers_pts = ContourHelper.add_margin(centers_pts, cls.EXTRACTION_MARGIN_HEIGHT, cls.EXTRACTION_MARGIN_WIDTH)
 
         h = np.array([ [0,0],[table_size_px,0],[table_size_px,table_size_px],[0,table_size_px] ],np.float32)
         transform = cv2.getPerspectiveTransform(centers_pts, h)
