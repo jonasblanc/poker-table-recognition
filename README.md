@@ -15,7 +15,7 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 
 ## Table extraction
 
-<img src="https://user-images.githubusercontent.com/44334351/170958205-792b743f-6fbd-4392-9442-9e5007dd00bc.png" width="800">
+<img src="https://user-images.githubusercontent.com/44334351/171020469-84b9eb93-72a6-4f9b-a5ec-ed08e43fbe0f.png" width="800">
 
 [Table_extractor](./src/table_extractor.py) implements a pipeline to extract the table from the original image. The steps are:  
 
