@@ -71,13 +71,27 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 * Create a binary centered mask
 * Compare it to labeled masks with (intersection / union) score 
 * Assign it the label of the mask with highest score
-* Similar pipeline for number/letter recognition
+A similar pipeline is used for number/letter recognition
 
 ## Chips recognition
 
 <img src="https://user-images.githubusercontent.com/44334351/170962257-554e1674-574c-40ef-88cb-c7687d952806.png" width="800">
-<img src="https://user-images.githubusercontent.com/44334351/170963111-f93cfbbc-a710-4344-a953-7d02fb8b0a4f.png" width="800">
 
 [Chip_counter](./src/chip_counter.py) implements a pipeline to count the chips by color based on the table image. Steps:  
 
+* Hough circles on blurred gray image
+* For each circle, select color with largest number of pixel in the circle:
+  * Brigthness equilisation and median filtering
+  * For each color: Binary HSV thresholding
+  * Intersection of binary masks between circle and color masks
+
+<img src="https://user-images.githubusercontent.com/44334351/170963111-f93cfbbc-a710-4344-a953-7d02fb8b0a4f.png" width="800">
+In order to find the HSV threshold for the color of the chips (red, blue, green, black, white), we implemented an interface to be able to the see the effect of the thresholding directly on most of the chips. 
+
 ## Results
+
+The training set is composed of 28 images of poker hands with different illuminations​
+
+* 94.7 % of accuracy on the number of the cards
+* 92.5 % of accuracy  on the suits of the cards
+* 99.0 % of accuracy on the number of chips 
