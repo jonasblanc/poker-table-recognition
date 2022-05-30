@@ -1,28 +1,32 @@
 import cv2
 import time
+import pickle
 import numpy as np
 from collections import Counter
 import matplotlib.pyplot as plt
-from utility_functions import *
+from numpy.linalg import norm
 
+from utility_functions import *
 
 class ChipCounter:
     
     HSV_COLOR_BOUNDS = {
-        'blue': [(np.array([96, 15, 100]), np.array([104, 255, 255]))],
-        'green': [(np.array([31, 80, 0]), np.array([97, 255, 255]))],
-        'red':[(np.array([140, 70, 70]), np.array([200, 255, 255])), (np.array([0, 140, 50]), np.array([16, 255, 155]))],
-        'black': [(np.array([0, 0, 0]), np.array([130, 194, 100])), (np.array([100, 145, 85]), np.array([118, 221, 120]))],
-        'white': [(np.array([78, 0, 178]), np.array([132, 85, 235]))]
+        'CB': [(np.array([96, 15, 100]), np.array([104, 255, 255]))],
+        'CG': [(np.array([31, 80, 0]), np.array([97, 255, 255]))],
+        'CR':[(np.array([140, 70, 70]), np.array([200, 255, 255])), (np.array([0, 140, 50]), np.array([16, 255, 155]))],
+        'CK': [(np.array([0, 0, 0]), np.array([130, 194, 100])), (np.array([100, 145, 85]), np.array([118, 221, 120]))],
+        'CW': [(np.array([78, 0, 178]), np.array([132, 85, 235]))]
         }
-
-    COLOR_TO_SIMBOL = {'red':'CR','blue':'CB','green':'CG','black':'CK', 'white': 'CW'}
 
     CHIPS_CENTER_INTENSITY_TRESHOLDS = [0.5, 0.6, 0.7, 0.8, 0.9] # list(np.linspace(0.5, 1, 20))
     CHIPS_BOUNDARIES = [0.25,0.75,0.25,0.75]
     
     MEAN_BRIGHTNESS = 180.0
     STD_BRIGHTNESS = 47.0
+    
+    MIN_RADIUS = 128
+    MAX_RADIUS = 135
+    MIN_DIST_BETWEEN_CENTERS = 100
 
     @classmethod           
     def _crop_chips(cls, table_img):
@@ -57,34 +61,47 @@ class ChipCounter:
         return reconstructed_img_hsv.astype("uint8") 
     
     @classmethod
-    def count_chips(cls, table_img, results_dict, plot=False):
+    def _detect_circle(cls, img):
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            gray = cv2.medianBlur(gray, 15)
+
+            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, cls.MIN_DIST_BETWEEN_CENTERS,
+                                   param1=40, param2=10,
+                                   minRadius=cls.MIN_RADIUS, maxRadius=cls.MAX_RADIUS)
+            return circles
+    
+    @classmethod   
+    def _create_circular_mask(cls, h, w, center=None, radius=None):
+        if center is None: # use the middle of the image
+            center = (int(w/2), int(h/2))
+        if radius is None: # use the smallest distance between the center and image walls
+            radius = min(center[0], center[1], w-center[0], h-center[1])
+
+        Y, X = np.ogrid[:h, :w]
+        dist_from_center = np.sqrt((X - center[0])**2 + (Y-center[1])**2)
+
+        mask = dist_from_center <= radius
+        return mask
+    
+    @classmethod
+    def count_chips(cls, table_img, results_dict, path_to_color_means="data/chips/chips_color_mean.pickle", plot=False):
         """
         Count chips by color on a rgb image
         Store result in results_dict with color key
         """
         
-        def detect_circle(img):
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            gray = cv2.medianBlur(gray, 15)
-
-            rows = gray.shape[0]
-            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 100,
-                                   param1=40, param2=10,
-                                   minRadius=128, maxRadius=135)
-            return circles
+        def classify_color(mean_rgb):
+            with open(path_to_color_means, 'rb') as handle:
+                chips_color_mean_dict = pickle.load(handle)
             
-        def create_circular_mask(h, w, center=None, radius=None):
-
-            if center is None: # use the middle of the image
-                center = (int(w/2), int(h/2))
-            if radius is None: # use the smallest distance between the center and image walls
-                radius = min(center[0], center[1], w-center[0], h-center[1])
-
-            Y, X = np.ogrid[:h, :w]
-            dist_from_center = np.sqrt((X - center[0])**2 + (Y-center[1])**2)
-
-            mask = dist_from_center <= radius
-            return mask
+            min_dist = np.inf
+            min_label = "0"
+            for label, center in chips_color_mean_dict.items():
+                dist = norm(mean_rgb - center)
+                if dist < min_dist:
+                    min_dist = dist
+                    min_label = label
+            return min_label
         
         # Select chips area
         chips_rgb = cls._crop_chips(table_img)
@@ -108,7 +125,7 @@ class ChipCounter:
         
         # Detect circles and assign it color with the largest intersection
         color_counts = Counter()
-        circles = detect_circle(chips_rgb)
+        circles = cls._detect_circle(chips_rgb)
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for i in circles[0, :]:
@@ -116,7 +133,7 @@ class ChipCounter:
                 radius = i[2]
                 
                 # Coord of pixel inside the circle
-                mask = create_circular_mask(chips_rgb.shape[0], chips_rgb.shape[1], center, radius)
+                mask = cls._create_circular_mask(chips_rgb.shape[0], chips_rgb.shape[1], center, radius)
                 
                 max_count = 0
                 best_color_name = None
@@ -129,31 +146,55 @@ class ChipCounter:
                     if count > max_count:
                         max_count = count
                         best_color_name = color_name
-
-                if best_color_name != None:
-                    color_counts[best_color_name]+=1
-                    
-                    if plot:
-                        fig, axes = plt.subplots(1, 3, figsize=(4, 4), tight_layout=True)
-
-                        axes[0].imshow(chips_rgb)
-                        axes[0].set_title(f"Original")
                         
-                        axes[1].imshow(colors_maks[best_color_name])
-                        axes[1].set_title(f"Best color mask")
+                if best_color_name == None:
+                    print("Warning circle with no thresholded color: set to label of closest color mean")
+                    mean_hsv = np.array(chips_hsv[mask].mean(axis=0)).reshape(1,1,3).astype("uint8")
+                    mean_RGB = cv2.cvtColor(mean_hsv, cv2.COLOR_HSV2RGB)
+                    best_color_name = classify_color(mean_RGB)
+                
+               
+                color_counts[best_color_name]+=1
+                    
+                if plot:
+                    fig, axes = plt.subplots(1, 3, figsize=(4, 4), tight_layout=True)
 
-                        axes[2].imshow(mask)
-                        axes[2].set_title(f"circle mask")
-                        plt.show()       
+                    axes[0].imshow(chips_rgb)
+                    axes[0].set_title(f"Original")
 
-                else:
-                    print("Warning circle with no thresholded color inside")
-        
+                    axes[1].imshow(colors_maks[best_color_name])
+                    axes[1].set_title(f"Best color mask")
+
+                    axes[2].imshow(mask)
+                    axes[2].set_title(f"circle mask")
+                    plt.show()                    
 
         for color in color_names:
-            results_dict[cls.COLOR_TO_SIMBOL[color]]=color_counts[color]
+            results_dict[color]=color_counts[color]
 
         return results_dict
+    
+    @classmethod
+    def compute_mean_hsv_chips(cls, table_img): 
+        chips_rgb = cls._crop_chips(table_img)
+        circles = cls._detect_circle(chips_rgb)
+        
+        blured_chips_rgb = cv2.medianBlur(chips_rgb,ksize=51)
+        chips_hsv = cv2.cvtColor(blured_chips_rgb, cv2.COLOR_RGB2HSV)
+        chips_hsv = cls._normalize_brightness_hsv(chips_hsv)
+        
+        means = []
+
+        if circles is not None:
+            circles = np.uint16(np.around(circles))
+            for i in circles[0, :]:
+                center = (i[0], i[1])
+                radius = i[2]
+                mask = cls._create_circular_mask(chips_rgb.shape[0], chips_rgb.shape[1], center, radius)
+                
+                means.append(chips_hsv[mask].mean(axis=0))
+                
+        return means 
     
     @classmethod
     def count_chips_distance_map(cls, table_img, results_dict, plot=False):
@@ -250,7 +291,7 @@ class ChipCounter:
             plt.show()
 
         for color in color_names:
-            results_dict[cls.COLOR_TO_SIMBOL[color]]=color_counts[color]
+            results_dict[color]=color_counts[color]
 
         return results_dict
 

@@ -4,3 +4,4 @@ SETUP_DATA = DATA + "image_setup/"
 
 PATH_CARD_CLASSIFIER_MASKS = DATA + "card_classifier_masks/"
 PATH_SINGLE_CARDS_GROUND_TRUTH = DATA + "single_cards_gt/"
+PATH_CHIPS = DATA + "chips/"
