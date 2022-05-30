@@ -61,13 +61,38 @@ class ChipCounter:
         return reconstructed_img_hsv.astype("uint8") 
     
     @classmethod
-    def _detect_circle(cls, img):
+    def _detect_circle(cls, img, plot=False):
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            gray = cv2.medianBlur(gray, 15)
+            blurred = cv2.medianBlur(gray, 15)
 
-            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, cls.MIN_DIST_BETWEEN_CENTERS,
+            circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1, cls.MIN_DIST_BETWEEN_CENTERS,
                                    param1=40, param2=10,
                                    minRadius=cls.MIN_RADIUS, maxRadius=cls.MAX_RADIUS)
+            
+            if plot:
+                circle_img = img.copy()
+                if circles is not None:
+                    circles = np.uint16(np.around(circles))
+                    for i in circles[0, :]:
+                        center = (i[0], i[1])
+                        # circle center
+                        cv2.circle(circle_img, center, 1, (0, 100, 100), 5)
+                        # circle outline
+                        radius = i[2]
+                        cv2.circle(circle_img, center, radius, (255, 0, 255), 5)
+                
+                fig, axes = plt.subplots(1, 3, figsize=(10, 10), tight_layout=True)
+
+                axes[0].imshow(img)
+                axes[0].set_title(f"Original")
+
+                axes[1].imshow(blurred, cmap="gray")
+                axes[1].set_title(f"Blurred")
+
+                axes[2].imshow(circle_img)
+                axes[2].set_title(f"Circles")
+                plt.show() 
+            
             return circles
     
     @classmethod   
@@ -125,7 +150,8 @@ class ChipCounter:
         
         # Detect circles and assign it color with the largest intersection
         color_counts = Counter()
-        circles = cls._detect_circle(chips_rgb)
+        circles = cls._detect_circle(chips_rgb, plot=plot)
+        circle_img = chips_rgb.copy()
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for i in circles[0, :]:
@@ -156,7 +182,7 @@ class ChipCounter:
                
                 color_counts[best_color_name]+=1
                     
-                if plot:
+                if plot:  
                     fig, axes = plt.subplots(1, 3, figsize=(4, 4), tight_layout=True)
 
                     axes[0].imshow(chips_rgb)
@@ -167,7 +193,9 @@ class ChipCounter:
 
                     axes[2].imshow(mask)
                     axes[2].set_title(f"circle mask")
-                    plt.show()                    
+                    plt.show()  
+                    
+             
 
         for color in color_names:
             results_dict[color]=color_counts[color]

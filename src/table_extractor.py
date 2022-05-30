@@ -93,7 +93,7 @@ class TableExtractor:
                 cv2.circle(debug_img, (int(x),int(y)), radius=100, color=(0, 0,255), thickness=10)  
                 
             fig, axes = plt.subplots(1, 3, figsize=(10, 30),tight_layout=True)
-            axes[0].set_title(f"Orginal")
+            axes[0].set_title(f"Original")
             axes[0].imshow(img)
             axes[1].set_title(f"Lines")
             axes[1].imshow(debug_img)
