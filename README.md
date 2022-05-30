@@ -11,6 +11,7 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 * [Card recognition](#card-recognition)
 * [Chips recognition](#chips-recognition)
 * [Results](#results)
+* [Collaborators](#collaborators)
 
 ## Table extraction
 
@@ -25,6 +26,8 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 * Intersection points clustering (with given distance between cluster)  
 * Polynomial approximation based on 4 selected cluster centers
 * Table extraction
+
+[Table_extraction](./research%20notebooks/Table_extraction.ipynb) breaks down the pipeline steps by steps. 
 
 ## Table cards extraction
 
@@ -58,6 +61,8 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 * Polynomial approximation based on 4 corners
 * Cards extraction (top / bottom label based on the position of the corners toward the corners center)
 
+[Player_cards_extraction](./research%20notebooks/Player_cards_extraction.ipynb) breaks down the pipeline steps by steps. 
+
 ## Card recognition
 
 <img src="https://user-images.githubusercontent.com/44334351/170959309-bb59f914-1ce1-4595-b9e7-9de8ce41ec42.png" width="800">
@@ -73,6 +78,8 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 * Assign it the label of the mask with highest score
 A similar pipeline is used for number/letter recognition
 
+[Card_recognition](./research%20notebooks/Card_recognition.ipynb) can be used to create the groudtruth mask used when classifying cards.
+
 ## Chips recognition
 
 <img src="https://user-images.githubusercontent.com/44334351/170962257-554e1674-574c-40ef-88cb-c7687d952806.png" width="800">
@@ -85,8 +92,12 @@ A similar pipeline is used for number/letter recognition
   * For each color: Binary HSV thresholding
   * Intersection of binary masks between circle and color masks
 
+[Chips_preprocessing](./research%20notebooks/Chips_preprocessing.ipynb) can be used to compute the color cluster and to merge chips images into one which is convenient for finding color thresholds.
+
+In order to find the HSV threshold for the color of the chips (red, blue, green, black, white), we implemented an interface to be able to the see the effect of the thresholding directly on most of the chips. [Chips_colors_thresholds](./research%20notebooks/Chips_colors_thresholds.ipynb) can be used to launch the interface.
+
 <img src="https://user-images.githubusercontent.com/44334351/170963111-f93cfbbc-a710-4344-a953-7d02fb8b0a4f.png" width="800">
-In order to find the HSV threshold for the color of the chips (red, blue, green, black, white), we implemented an interface to be able to the see the effect of the thresholding directly on most of the chips. 
+
 
 ## Results
 
@@ -95,3 +106,9 @@ The training set is composed of 28 images of poker hands with different illumina
 * 94.7 % of accuracy on the number of the cards
 * 92.5 % of accuracy  on the suits of the cards
 * 99.0 % of accuracy on the number of chips 
+
+## Collaborators
+
+@esteegdd - Estee Grandidier  
+@Squalene - Antoine Masanet  
+@jonasblanc - Jonas Blanc  
