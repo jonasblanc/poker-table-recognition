@@ -31,4 +31,7 @@ This repository implements a pipeline to recognize playing cards and chips of a 
 
 ## Chips recognition
 
+<img src="https://user-images.githubusercontent.com/44334351/170962257-554e1674-574c-40ef-88cb-c7687d952806.png" width="800">
+<img src="https://user-images.githubusercontent.com/44334351/170963111-f93cfbbc-a710-4344-a953-7d02fb8b0a4f.png" width="800">
+
 ## Results
