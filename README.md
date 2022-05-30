@@ -88,7 +88,7 @@ A similar pipeline is used for number/letter recognition.
 
 * Hough circles on blurred gray image
 * For each circle, select color with largest number of pixel in the circle:
-  * Brightness equilisation and median filtering
+  * Brightness equalisation and median filtering
   * For each color: Binary HSV thresholding
   * Intersection of binary masks between circle and color masks
 
