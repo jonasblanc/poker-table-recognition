@@ -1,0 +1,7 @@
+pillow
+numpy
+pandas
+opencv-python
+sklearn
+termcolor
+treys

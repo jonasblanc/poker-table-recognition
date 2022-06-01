@@ -16,5 +16,3 @@ def crop(img,fractional_boundaries):
     integer_boundaries[3] = int(fractional_boundaries[3] * y_len)
 
     return img[integer_boundaries[0]:integer_boundaries[1], integer_boundaries[2]: integer_boundaries[3]]
-
-    
